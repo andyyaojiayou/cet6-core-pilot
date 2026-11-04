@@ -1,0 +1,13 @@
+CET-6 G1 audio
+
+All recordings are generated from the site's original English practice text.
+Engine: Piper 2023.11.14-2
+https://github.com/rhasspy/piper/releases/tag/2023.11.14-2
+
+US: en_US-ljspeech-medium. Its model card lists the training corpus as public domain.
+https://huggingface.co/rhasspy/piper-voices/blob/main/en/en_US/ljspeech/medium/MODEL_CARD
+https://keithito.com/LJ-Speech-Dataset/
+
+UK: en_GB-cori-medium. Its model card lists the training corpus as public domain.
+https://huggingface.co/rhasspy/piper-voices/blob/main/en/en_GB/cori/medium/MODEL_CARD
+https://librivox.org/pages/public-domain/
