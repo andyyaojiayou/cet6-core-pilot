@@ -2,9 +2,9 @@ const nju = 'https://eol.nju.edu.cn/cet6/papers/202606-1.html';
 const nju3 = 'https://eol.nju.edu.cn/cet6/papers/202606-3.html';
 const lazy = 'https://english-exam.lazynote.cn/cet6/sections/listening/2025-12-1/';
 const reading = { label: '2026 年 6 月第 1 套 · 仔细阅读正文', url: nju };
-const prompt = { label: '2026 年 6 月第 1 套 · 作文题面', url: nju };
+const prompt = { label: '2026 年 6 月 · 文化自信作文题面', url: nju };
 const listening = anchor => ({ label: '2025 年 12 月第 1 套 · 长对话 1 文字稿', url: `${lazy}#${anchor}` });
-const reference = { label: '2026 年 6 月第 3 套 · 南京大学页面参考范文', url: nju3 };
+const reference = { label: '2026 年 6 月 · 南京大学青年责任参考范文', url: nju3 };
 
 export const words = [
   {
@@ -69,7 +69,7 @@ export const words = [
     sentence: 'Timely feedback can enhance learning outcomes.', translation: '及时反馈可以提升学习成效。',
     hint: '作文里可搭配 efficiency、quality、understanding。',
     cue: '提高、增强（质量或效果），以 en- 开头', phraseCue: '提升学习成效（outcomes）', accept: ['enhance learning outcomes'],
-    source: { label: '2026 年 6 月第 3 套 · 作文题面', url: nju3 },
+    source: { label: '2026 年 6 月 · 青年责任作文题面', url: nju3 },
   },
   {
     id: 'submit', skills: ['listening'], theme: '学习与职场', ipa: '/səbˈmɪt/',
