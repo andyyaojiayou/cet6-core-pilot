@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f6f4ed">
+  <title>词间 · 六级词汇</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <main>
+    <header class="mast"><span class="brand">词间</span><span class="eyebrow">CET-6 · 15 词试学</span></header>
+    <section class="hero" aria-labelledby="title">
+      <div>
+        <p class="eyebrow">六级词汇 · 每日练习</p>
+        <h1 id="title">今天背什么？</h1>
+        <p>先复习到期词，再学新词。用一句话记住一个用法。</p>
+      </div>
+      <svg viewBox="0 0 136 112" aria-hidden="true">
+        <path d="M9 25q32-8 57 11q26-19 61-11v61q-34-8-61 11Q40 77 9 86Z" fill="#f2cf76" stroke="#263d2e" stroke-width="2.2"/>
+        <path d="M9 17q32-8 57 11q26-19 61-11v61q-34-8-61 11Q40 69 9 78Z" fill="#fffaf0" stroke="#263d2e" stroke-width="2.2"/>
+        <path d="M66 28v61M21 32q18-3 34 7M21 45q18-3 34 7M21 58q18-3 34 7M78 39q18-10 34-7M78 52q18-10 34-7" fill="none" stroke="#263d2e" stroke-width="2" stroke-linecap="round"/>
+        <path d="M102 15V3l9 4 8-4v12" fill="#eaa875" stroke="#263d2e" stroke-width="2"/>
+      </svg>
+    </section>
+    <section class="metrics" aria-label="今日进度">
+      <div><strong id="due">—</strong><span>到期训练卡</span></div>
+      <div><strong id="fresh">—</strong><span>今日新学词</span></div>
+      <div><strong id="mastered">—</strong><span>已掌握词</span></div>
+    </section>
+    <p class="notice" id="notice" role="status" hidden></p>
+    <section class="panel" id="study" aria-label="词汇训练">
+      <h2>开始今日练习</h2>
+      <p>先在脑中回忆，再提交答案。每次完成都会安排下次复习。</p>
+      <button class="primary" id="start" type="button">开始学习</button>
+    </section>
+    <details class="panel">
+      <summary>词条与能力进度</summary>
+      <p id="breakdown"></p>
+      <p class="muted">已学习指完成首次主动回忆。已掌握需要跨日到期复测通过。答错或处于重学阶段时列入待巩固。</p>
+      <ul id="progress"></ul>
+    </details>
+    <details class="panel">
+      <summary>备份与每日提醒</summary>
+      <p>学习记录保存在当前浏览器。导出 JSON 后，可在同一浏览器或另一台设备恢复。导入会替换当前进度。</p>
+      <div class="row">
+        <button type="button" id="export">导出进度</button>
+        <label class="button" for="import">选择备份</label>
+        <input type="file" id="import" accept=".json,application/json" class="sr-only">
+      </div>
+      <p>可在 iPhone「提醒事项」中设一条每日重复提醒，并把本站链接放进备注。</p>
+    </details>
+    <footer>练习句由本站编写 · 发音由设备合成 · 复习排程使用 FSRS</footer>
+  </main>
+  <script type="module" src="./app.mjs"></script>
+</body>
+</html>
