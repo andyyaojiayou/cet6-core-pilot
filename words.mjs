@@ -1,8 +1,10 @@
 const nju = 'https://eol.nju.edu.cn/cet6/papers/202606-1.html';
+const nju3 = 'https://eol.nju.edu.cn/cet6/papers/202606-3.html';
 const lazy = 'https://english-exam.lazynote.cn/cet6/sections/listening/2025-12-1/';
 const reading = { label: '2026 年 6 月第 1 套 · 仔细阅读正文', url: nju };
 const prompt = { label: '2026 年 6 月第 1 套 · 作文题面', url: nju };
-const listening = { label: '2025 年 12 月第 1 套 · 长对话 1 文字稿', url: lazy };
+const listening = anchor => ({ label: '2025 年 12 月第 1 套 · 长对话 1 文字稿', url: `${lazy}#${anchor}` });
+const reference = { label: '2026 年 6 月第 3 套 · 南京大学页面参考范文', url: nju3 };
 
 export const words = [
   {
@@ -10,7 +12,7 @@ export const words = [
     meaning: '经历、接受（变化、治疗等）', collocation: 'undergo a major change',
     sentence: 'The company will undergo a major change this year.', translation: '公司今年将经历一次重大变革。',
     hint: '常接 change、training 或 surgery。过去式是 underwent。',
-    distractors: ['发起一项调查', '提出一个建议', '完成一项任务'], source: listening,
+    distractors: ['发起一项调查', '提出一个建议', '完成一项任务'], source: listening('p-1-4'),
   },
   {
     id: 'correlate', skills: ['reading'], theme: '研究与数据', ipa: '/ˈkɒrəleɪt/',
@@ -31,7 +33,7 @@ export const words = [
     meaning: '善于清楚表达的', collocation: 'an articulate speaker',
     sentence: 'She is an articulate speaker who can explain complex ideas clearly.', translation: '她善于表达，能把复杂的想法讲清楚。',
     hint: '这里是形容词，结尾读 /lət/。动词「清楚表达」的结尾读 /leɪt/。',
-    distractors: ['善于组织活动的', '格外谨慎的', '缺乏耐心的'], source: listening,
+    distractors: ['善于组织活动的', '格外谨慎的', '缺乏耐心的'], source: listening('p-1-10'),
   },
   {
     id: 'disrupt', skills: ['reading'], theme: '健康与科技', ipa: '/dɪsˈrʌpt/',
@@ -52,7 +54,7 @@ export const words = [
     meaning: '颁布、制定（法律等）', collocation: 'enact a law',
     sentence: 'The government plans to enact a law to protect workers.', translation: '政府计划制定一部法律来保护劳动者。',
     hint: '听到 enact 时留意后面的 law 或 legislation。',
-    distractors: ['废止一项规定', '评估政策效果', '违反法规'], source: listening,
+    distractors: ['废止一项规定', '评估政策效果', '违反法规'], source: listening('p-1-10'),
   },
   {
     id: 'underestimate', skills: ['reading'], theme: '研究与判断', ipa: '/ˌʌndərˈestɪmeɪt/',
@@ -67,6 +69,7 @@ export const words = [
     sentence: 'Timely feedback can enhance learning outcomes.', translation: '及时反馈可以提升学习成效。',
     hint: '作文里可搭配 efficiency、quality、understanding。',
     cue: '提高、增强（质量或效果），以 en- 开头', phraseCue: '提升学习成效（outcomes）', accept: ['enhance learning outcomes'],
+    source: { label: '2026 年 6 月第 3 套 · 作文题面', url: nju3 },
   },
   {
     id: 'submit', skills: ['listening'], theme: '学习与职场', ipa: '/səbˈmɪt/',
@@ -87,7 +90,7 @@ export const words = [
     meaning: '促进、培养（发展或合作）', collocation: 'foster cooperation',
     sentence: 'Joint projects can foster cooperation between schools.', translation: '联合项目可以促进学校之间的合作。',
     hint: '适合写合作、创新和成长。常见搭配 foster trust、foster innovation。',
-    cue: '促进、培养（合作或发展），以 f 开头', phraseCue: '促进合作', accept: ['foster cooperation', 'foster collaboration'],
+    cue: '促进、培养（合作或发展），以 f 开头', phraseCue: '促进合作', accept: ['foster cooperation', 'foster collaboration'], source: reference,
   },
   {
     id: 'claim', skills: ['listening'], theme: '出行与服务', ipa: '/kleɪm/',
@@ -95,6 +98,7 @@ export const words = [
     sentence: 'You can file a claim if the airline loses your bag.', translation: '如果航空公司弄丢了你的行李，你可以提出索赔。',
     hint: '听到 file a claim 联想到提交索赔申请。动词 claim 也可以表示「声称」。',
     distractors: ['出具发票', '确认预订', '办理托运'],
+    source: { label: '2025 年 12 月第 1 套 · 讲座 1 文字稿', url: `${lazy}#p-16-3` },
   },
   {
     id: 'shield', skills: ['reading'], theme: '社会与政策', ipa: '/ʃiːld/',
@@ -108,6 +112,6 @@ export const words = [
     meaning: '为……作贡献；促成', collocation: 'contribute to sustainable development',
     sentence: 'Better public transport can contribute to sustainable development.', translation: '更好的公共交通可以为可持续发展作贡献。',
     hint: '记住介词 to，后接名词或动名词。阅读中也可指促成坏结果。',
-    cue: '为……作贡献，或成为某个结果的成因，以 c 开头', phraseCue: '为可持续发展作贡献', accept: ['contribute to sustainable development'],
+    cue: '为……作贡献，或成为某个结果的成因，以 c 开头', phraseCue: '为可持续发展作贡献', accept: ['contribute to sustainable development'], source: reference,
   },
 ];
