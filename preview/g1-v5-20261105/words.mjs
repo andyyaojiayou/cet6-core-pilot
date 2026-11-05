@@ -172,7 +172,7 @@ export const words = [
     cue: '全球化（用 z 拼法）', phraseCue: '全球化的影响', accept: ['the impact of globalization', 'impact of globalization', 'the effects of globalization', 'effects of globalization'], source: culturePrompt('globalization'),
   },
   {
-    id: 'enact', skills: ['listening'], theme: '社会与政策', ipa: '/ɪˈnækt/',
+    id: 'enact', skills: ['listening'], theme: '社会与政策', ipa: '/ɪˈnækt/', audioWord: 'enact-clean-word',
     past: 'enacted', participle: 'enacted',
     pos: 'v.', meaning: '颁布、制定（法律等）', collocation: 'enact a law',
     sentence: 'The government plans to enact a law to protect workers.', translation: '政府计划制定一部法律来保护劳动者。',

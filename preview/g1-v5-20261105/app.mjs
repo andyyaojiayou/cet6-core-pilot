@@ -1,9 +1,9 @@
-import { words } from './words.mjs?v=7';
+import { words } from './words.mjs?v=8';
 import { dailyNew, day, status, writingCorrect } from './learning.mjs';
 import { dailyQuote } from './daily-quote.mjs';
 import { createData, current, draft, modes, move, pending, plan, rate, readBackup,
   reviewStart, setSenseLevel, startSession, targetDate, undo } from './session.mjs?v=6';
-import { learningStoreForPath, openStore, StaleProgress } from './storage.mjs?v=6';
+import { openStore, StaleProgress } from './storage.mjs?v=7';
 
 const $ = id => document.getElementById(id);
 const names = { listening: '听力', reading: '阅读', writing: '写作' };
@@ -90,7 +90,9 @@ function playAudio(control, stem, fallback) {
   stopAudio();
   const token = playback;
   const accent = data.prefs.accent;
-  const source = new URL('./audio/' + accent + '/' + stem + '.mp3', import.meta.url).href;
+  const clip = new URL('./audio/' + accent + '/' + stem + '.mp3', import.meta.url);
+  clip.search = new URL(import.meta.url).search;
+  const source = clip.href;
   if (audio.src !== source) audio.src = source;
   else if (audio.readyState > 0) audio.currentTime = 0;
   else audio.load();
@@ -637,12 +639,13 @@ window.addEventListener('pagehide', stopAudio);
 window.addEventListener('pageshow', refreshToday);
 setInterval(refreshToday, 30000);
 
-const preview = learningStoreForPath(location.pathname).includes('-preview-');
+const release = document.documentElement.dataset.release;
+const preview = release !== 'production';
 $('preview-notice').hidden = !preview;
 if (preview) $('release-badge').textContent = 'G1 V5 · 预览';
 render();
 try {
-  store = await openStore();
+  store = await openStore(release);
   load(await store.load());
 } catch {
   $('start').textContent = '进度读取失败';

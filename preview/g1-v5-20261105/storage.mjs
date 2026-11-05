@@ -1,19 +1,19 @@
 import { createData, readBackup } from './session.mjs?v=6';
 
 const database = 'cet6-vocabulary';
+const previewDatabase = 'cet6-vocabulary-preview-g1-v5-20261105';
 const storeName = 'learning';
 const recordKey = 'device';
 export const legacyKey = 'cet6-core-progress-v1';
 
 export class StaleProgress extends Error {}
 
-export function learningStoreForPath(pathname) {
-  const preview = pathname.match(/(?:^|\/)preview\/(g1-v5-20261105)(?:\/|$)/);
-  return preview ? `${database}-preview-${preview[1]}` : database;
+export function learningStoreForRelease(release) {
+  return release === 'production' ? database : previewDatabase;
 }
 
-export async function openStore(pathname = globalThis.location?.pathname ?? '/') {
-  const name = learningStoreForPath(pathname);
+export async function openStore(release = globalThis.document?.documentElement.dataset.release) {
+  const name = learningStoreForRelease(release);
   const db = await new Promise((resolve, reject) => {
     const request = indexedDB.open(name, 1);
     request.onupgradeneeded = () => request.result.createObjectStore(storeName);
