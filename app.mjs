@@ -1,5 +1,6 @@
-import { words } from './words.mjs';
+import { words } from './words.mjs?v=5';
 import { dailyNew, day, status, writingCorrect } from './learning.mjs';
+import { dailyQuote } from './daily-quote.mjs';
 import { createData, current, draft, modes, move, pending, plan, rate, readBackup,
   reviewStart, startSession, targetDate, undo } from './session.mjs';
 import { openStore, StaleProgress } from './storage.mjs';
@@ -24,6 +25,20 @@ function element(tag, text, className) {
   if (text) node.textContent = text;
   if (className) node.className = className;
   return node;
+}
+
+function exampleSentence(word) {
+  const sentence = element('p', '', 'reading-sentence');
+  sentence.lang = 'en';
+  const target = word.form ?? word.id;
+  const match = word.sentence.match(new RegExp('\\b' + target + '\\b', 'i'));
+  if (!match) {
+    sentence.textContent = word.sentence;
+    return sentence;
+  }
+  sentence.append(word.sentence.slice(0, match.index), element('mark', match[0]),
+    word.sentence.slice(match.index + match[0].length));
+  return sentence;
 }
 
 function button(text, action, className) {
@@ -109,9 +124,15 @@ function audioControls(word, kind, onPlay) {
   return controls;
 }
 
-function renderCounts() {
-  if (!ready) return;
+function refreshToday() {
   const now = new Date();
+  const { english, chinese } = dailyQuote(now);
+  if ($('quote-en').textContent !== english) {
+    $('quote-en').textContent = english;
+    $('quote-zh').textContent = chinese;
+    $('daily-quote').hidden = false;
+  }
+  if (!ready) return;
   const tasks = pending(data, words, now);
   const learned = dailyNew(data.progress, now);
   $('due').textContent = tasks.due.length;
@@ -175,10 +196,13 @@ function renderStudy() {
   study.replaceChildren(header, title, body, nav);
 
   if (answeredCard || scored) {
-    showFeedback(item, answered.correct, scored, body);
+    showFeedback(item, answered, scored, body);
     return;
   }
-  const answer = correct => updateCard(item, { correct }, render);
+  const answer = (correct, revealed = false) => updateCard(item, { correct, revealed }, () => {
+    render();
+    study.querySelector('.verdict')?.focus();
+  });
   if (skill === 'writing') {
     const form = element('form', '', 'stack');
     const fields = [['spelling', word.cue], ['phrase', word.phraseCue]];
@@ -217,9 +241,7 @@ function renderStudy() {
         if (options.hidden) updateCard(item, { played: true }, () => { options.hidden = false; });
       }));
     } else {
-      const sentence = element('p', word.sentence, 'reading-sentence');
-      sentence.lang = 'en';
-      body.append(sentence);
+      body.append(exampleSentence(word));
     }
     const choices = [...word.distractors];
     const correctIndex = [...word.id].reduce((sum, c) => sum + c.charCodeAt(0), 0) % 4;
@@ -227,7 +249,7 @@ function renderStudy() {
     options.append(...choices.map(value => button(value, () => answer(value === word.meaning))));
     body.append(options);
   }
-  body.append(button('想不起来', () => answer(false)));
+  body.append(button('想不起来', () => answer(false, true)));
 }
 
 function navigate(offset) {
@@ -244,25 +266,97 @@ function undoLast() {
   });
 }
 
-function showFeedback(item, correct, scored, body) {
+function semanticFeedback(word) {
+  const section = element('section', '', 'semantic-feedback stack');
+  const choices = element('div', '', 'semantic-choices');
+  choices.setAttribute('role', 'group');
+  choices.setAttribute('aria-label', '选择要对比的表达');
+  const comparison = element('div', '', 'semantic-comparison stack');
+  comparison.setAttribute('aria-live', 'polite');
+
+  function select(related, selected) {
+    for (const choice of choices.children) {
+      choice.setAttribute('aria-pressed', String(choice === selected));
+    }
+    const title = element('h4', word.id + ' / ' + related.term);
+    title.lang = 'en';
+    const example = element('p', related.example, 'semantic-example');
+    example.lang = 'en';
+    comparison.replaceChildren(title, element('p', related.comparison), example,
+      element('p', related.translation, 'muted'));
+  }
+
+  for (const related of word.related) {
+    const choice = button('', () => select(related, choice), 'semantic-choice');
+    const term = element('strong', related.term);
+    term.lang = 'en';
+    choice.append(element('span', related.kind, 'semantic-kind'), term, element('span', related.meaning, 'muted'));
+    choices.append(choice);
+  }
+  select(word.related[0], choices.firstElementChild);
+  section.append(element('h3', '放在语境里对比'), choices, comparison);
+  return section;
+}
+
+function showFeedback(item, { correct, revealed }, scored, body) {
   const { word } = item;
   const box = element('div', '', 'feedback stack');
-  const head = element('h2', word.id + ' ' + word.ipa);
-  head.lang = 'en';
-  const example = element('p', word.sentence);
-  example.lang = 'en';
-  box.append(element('p', scored ? '已评分 · 可回看' : correct ? '答对了。按回忆难度评分。' : '这次需要巩固。看完解析，记录为忘记。',
-    correct ? 'verdict' : 'verdict wrong'), head, element('p', word.meaning),
-    audioControls(word, 'word'), audioControls(word, 'sentence'),
-    element('p', '搭配 · ' + word.collocation), example,
-    element('p', word.translation, 'muted'), element('p', word.hint));
+  const outcome = correct ? '答对了' : revealed ? '已揭晓' : revealed === false ? '答错了' : '待巩固';
+  const verdict = element('div', '', 'verdict ' + (correct ? 'right' : revealed ? 'revealed' : 'wrong'));
+  verdict.tabIndex = -1;
+  const icon = element('span', correct ? '✓' : revealed ? '↪' : '!', 'verdict-icon');
+  icon.setAttribute('aria-hidden', 'true');
+  const result = element('div');
+  result.append(element('strong', outcome), element('p', scored ? '已评分 · 可回看'
+    : correct ? '请按实际回忆难度评分。' : '看完解析后可记录为忘记。'));
+  verdict.append(icon, result);
+  const head = element('h3', word.id + ' ' + word.ipa);
+  head.lang = 'en-GB';
+  const meaning = element('section', '', 'explanation stack');
+  const definition = element('p', word.meaning, 'definition');
+  definition.prepend(element('span', word.pos, 'badge part-of-speech'));
+  meaning.append(head, definition, element('h4', '语境线索'), element('p', word.context));
+  const usage = element('section', '', 'explanation stack');
+  const collocation = element('p', word.collocation, 'collocation');
+  collocation.lang = 'en';
+  usage.append(element('h3', '语境与搭配'), collocation, exampleSentence(word),
+    element('p', word.translation, 'muted'), audioControls(word, 'word'), audioControls(word, 'sentence'));
+  box.append(verdict, meaning, usage);
+  if (word.related?.length) box.append(semanticFeedback(word));
+  if (word.senses?.length) {
+    const senses = element('section', '', 'senses stack');
+    senses.append(element('h3', '一词多义'));
+    for (const sense of word.senses) {
+      const entry = element('div', '', 'explanation stack');
+      const example = element('p', sense.example, 'semantic-example');
+      example.lang = 'en';
+      const pattern = element('p', sense.collocation, 'collocation');
+      pattern.lang = 'en';
+      entry.append(element('h4', sense.pos + ' ' + sense.meaning), pattern, example,
+        element('p', sense.translation, 'muted'), element('p', sense.context));
+      senses.append(entry);
+    }
+    box.append(senses);
+  }
+  const hint = element('details', '', 'semantic-hint');
+  hint.append(element('summary', '记忆提示与易错点'), element('p', word.hint));
+  box.append(hint);
+  const source = element('section', '', 'source-note stack');
+  source.append(element('h3', '例句与词形出处'),
+    element('p', '本卡练习句、辨析句与补充义项例句均为原创教学语境。'));
   if (word.source) {
-    const link = element('a', word.source.label);
+    const label = word.source.kind === 'reference' ? '参考范文词形' : '真题资料词形';
+    const evidence = element('p', label + ' · ');
+    const form = element('strong', word.source.form);
+    form.lang = 'en';
+    evidence.append(form);
+    const link = element('a', word.source.label, 'source-link');
     link.href = word.source.url;
     link.target = '_blank';
     link.rel = 'noopener noreferrer';
-    box.append(link);
-  } else box.append(element('p', '经验推荐 · 暂无已核验的真题位置', 'muted'));
+    source.append(evidence, link);
+  } else source.append(element('p', '选词依据 · 经验推荐'));
+  box.append(source);
   if (!scored) {
     const grades = correct ? [[1, '忘记 / 猜对'], [2, '困难'], [3, '记得'], [4, '轻松']] : [[1, '记录为忘记']];
     const ratings = element('div', '', 'ratings');
@@ -370,11 +464,13 @@ function render() {
     if (tab.hash === '#' + page) tab.setAttribute('aria-current', 'page');
     else tab.removeAttribute('aria-current');
   }
-  if (!ready) return;
   if (page === 'learn') {
-    renderCounts();
+    refreshToday();
     renderStudy();
-  } else if (page === 'plan') renderPlan();
+    return;
+  }
+  if (!ready) return;
+  if (page === 'plan') renderPlan();
   else renderSettings();
 }
 
@@ -433,9 +529,11 @@ $('import').addEventListener('change', async event => {
 });
 
 window.addEventListener('hashchange', () => { stopAudio(); render(); });
-document.addEventListener('visibilitychange', () => { if (!document.hidden) renderCounts(); });
-setInterval(renderCounts, 30000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshToday(); });
+window.addEventListener('pageshow', refreshToday);
+setInterval(refreshToday, 30000);
 
+render();
 try {
   store = await openStore();
   load(await store.load());

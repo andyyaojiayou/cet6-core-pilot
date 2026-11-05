@@ -3,27 +3,23 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#f6f4ed">
+  <meta name="theme-color" content="#f6f2ec">
   <title>词间 · 六级词汇</title>
-  <link rel="stylesheet" href="./style.css?v=2">
+  <link rel="stylesheet" href="./style.css?v=5">
 </head>
 <body>
   <main>
-    <header class="mast"><span class="brand">词间</span><span class="eyebrow">CET-6 · 15 词试学</span></header>
+    <header class="mast"><span class="brand">词间 <span>· 六级核心词汇冲刺</span></span><span class="badge">G1 · 15 词</span></header>
     <p class="notice" id="notice" role="status" hidden></p>
     <section id="learn-page">
     <section class="hero" id="hero" aria-labelledby="title">
-      <div>
-        <p class="eyebrow">六级词汇 · 每日练习</p>
-        <h1 id="title">今天背什么？</h1>
-        <p>先复习到期词，再学新词。用一句话记住一个用法。</p>
+      <p class="eyebrow"><span lang="en">TODAY</span> · 今日</p>
+      <h1 id="title">每个单词，<span>都记得更久。</span></h1>
+      <div class="daily-quote" id="daily-quote" hidden>
+        <p id="quote-en" lang="en"></p>
+        <p id="quote-zh"></p>
       </div>
-      <svg viewBox="0 0 136 112" aria-hidden="true">
-        <path d="M9 25q32-8 57 11q26-19 61-11v61q-34-8-61 11Q40 77 9 86Z" fill="#f2cf76" stroke="#263d2e" stroke-width="2.2"/>
-        <path d="M9 17q32-8 57 11q26-19 61-11v61q-34-8-61 11Q40 69 9 78Z" fill="#fffaf0" stroke="#263d2e" stroke-width="2.2"/>
-        <path d="M66 28v61M21 32q18-3 34 7M21 45q18-3 34 7M21 58q18-3 34 7M78 39q18-10 34-7M78 52q18-10 34-7" fill="none" stroke="#263d2e" stroke-width="2" stroke-linecap="round"/>
-        <path d="M102 15V3l9 4 8-4v12" fill="#eaa875" stroke="#263d2e" stroke-width="2"/>
-      </svg>
+      <p class="hero-guide">先复习到期词，再学新词。</p>
     </section>
     <section class="metrics" aria-label="今日进度">
       <div><strong id="due">—</strong><span>到期训练卡</span></div>
@@ -87,6 +83,6 @@
   <nav class="tabs" aria-label="主导航">
     <a href="#learn">学习</a><a href="#plan">计划</a><a href="#settings">设置</a>
   </nav>
-  <script type="module" src="./app.mjs?v=2"></script>
+  <script type="module" src="./app.mjs?v=5"></script>
 </body>
 </html>
