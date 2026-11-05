@@ -1,4 +1,4 @@
-import { words } from './words.mjs?v=6';
+import { words } from './words.mjs?v=7';
 import { dailyNew, day, status, writingCorrect } from './learning.mjs';
 import { dailyQuote } from './daily-quote.mjs';
 import { createData, current, draft, modes, move, pending, plan, rate, readBackup,
@@ -346,14 +346,15 @@ function wordSenses(item) {
     header.append(title, senseLevel(item, sense.id, sense.meaning));
     block.append(header);
     const evidence = sense.evidence ?? (isMain && word.source?.kind !== 'reference' && word.source ? [word.source] : []);
-    const statusLabel = evidence.length ? '真题有据' : '教学补充';
+    const statusLabel = evidence.length ? sense.evidenceLabel ?? '真题有据' : '教学补充';
     if (isMain || sense.ipa || sense.pos !== word.pos) {
       block.append(sense.ipa ? ipaLabel(sense.ipa, sense.ipaUS) : ipaLabel(word.ipa, word.ipaUS));
     }
     const pattern = element('p', sense.collocation, 'collocation');
     pattern.lang = 'en';
     const meta = element('div', '', 'sense-meta');
-    meta.append(pattern, element('span', statusLabel, evidence.length ? 'sense-evidence verified' : 'sense-evidence'));
+    meta.append(pattern, element('span', statusLabel,
+      evidence.length && !sense.evidenceLabel ? 'sense-evidence verified' : 'sense-evidence'));
     block.append(meta);
     if (sense === firstVerb && word.past) {
       const forms = element('p', '', 'verb-forms');
@@ -428,7 +429,7 @@ function semanticFeedback(word) {
 function showFeedback(item, { correct, revealed }, scored, body) {
   const { word } = item;
   const box = element('div', '', 'feedback stack');
-  const outcome = correct ? '答对了' : revealed ? '已揭晓' : '答错了';
+  const outcome = correct ? '答对了' : revealed ? '已揭晓' : revealed === false ? '答错了' : '待巩固';
   const verdict = element('div', '', 'verdict ' + (correct ? 'right' : revealed ? 'revealed' : 'wrong'));
   verdict.tabIndex = -1;
   const icon = element('span', correct ? '✓' : revealed ? '↪' : '!', 'verdict-icon');

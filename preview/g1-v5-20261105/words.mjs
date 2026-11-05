@@ -309,7 +309,7 @@ export const words = [
     ],
   },
   {
-    id: 'claim', skills: ['listening'], theme: '出行与服务', ipa: '/kleɪm/',
+    id: 'claim', skills: ['listening'], theme: '出行与服务', ipa: '/kleɪm/', evidenceLabel: '真题相关用法',
     past: 'claimed', participle: 'claimed',
     pos: 'n.', meaning: '索赔申请', collocation: 'file a claim',
     sentence: 'You can file a claim if the airline loses your bag.', translation: '如果航空公司弄丢了你的行李，你可以提出索赔。',
