@@ -1,9 +1,9 @@
-import { words } from './words.mjs?v=5';
+import { words } from './words.mjs?v=8';
 import { dailyNew, day, status, writingCorrect } from './learning.mjs';
 import { dailyQuote } from './daily-quote.mjs';
 import { createData, current, draft, modes, move, pending, plan, rate, readBackup,
-  reviewStart, startSession, targetDate, undo } from './session.mjs';
-import { openStore, StaleProgress } from './storage.mjs';
+  reviewStart, setSenseLevel, startSession, targetDate, undo } from './session.mjs?v=6';
+import { openStore, StaleProgress } from './storage.mjs?v=7';
 
 const $ = id => document.getElementById(id);
 const names = { listening: '听力', reading: '阅读', writing: '写作' };
@@ -11,7 +11,7 @@ const study = $('study');
 const pages = ['learn', 'plan', 'settings'];
 const audio = new Audio();
 audio.preload = 'none';
-let playback = 0, lastClip;
+let playback = 0, playingButton;
 let data = createData(), revision = null, store, ready = false, active = false;
 let writes = Promise.resolve();
 
@@ -80,48 +80,59 @@ function stopAudio() {
   playback++;
   audio.pause();
   window.speechSynthesis?.cancel();
+  playingButton?.removeAttribute('data-playing');
+  playingButton = null;
 }
 
-function play(word, kind, speed = data.prefs.speed) {
+audio.addEventListener('ended', () => { if (audio.ended) stopAudio(); });
+
+function playAudio(control, stem, fallback) {
   stopAudio();
-  lastClip = { word, kind, speed };
   const token = playback;
   const accent = data.prefs.accent;
-  const ratio = speed === 'slow' ? 0.78 : 1;
-  audio.src = './audio/' + accent + '/' + word.id + '-' + kind + '.mp3';
-  audio.defaultPlaybackRate = ratio;
-  audio.playbackRate = ratio;
+  const clip = new URL('./audio/' + accent + '/' + stem + '.mp3', import.meta.url);
+  clip.search = new URL(import.meta.url).search;
+  const source = clip.href;
+  if (audio.src !== source) audio.src = source;
+  else if (audio.readyState > 0) audio.currentTime = 0;
+  else audio.load();
+  playingButton = control;
+  control.dataset.playing = '';
   audio.play().catch(() => {
     if (token !== playback) return;
-    if (!window.speechSynthesis) {
-      message('音频暂时无法播放，请检查网络和媒体音量后重试。');
+    if (!fallback || !window.speechSynthesis) {
+      stopAudio();
+      message('这段音频暂时无法播放，请检查网络和媒体音量后再点一次。');
       return;
     }
-    const speech = new SpeechSynthesisUtterance(kind === 'word' ? word.id : word.sentence);
+    const speech = new SpeechSynthesisUtterance(fallback);
     speech.lang = accent;
-    speech.rate = ratio;
     speech.voice = speechSynthesis.getVoices().find(voice => voice.lang === accent && voice.localService) ?? null;
+    speech.onend = () => { if (token === playback) stopAudio(); };
     speech.onerror = () => {
-      if (token === playback) message('朗读未能播放，请重新轻点播放。');
+      if (token !== playback) return;
+      stopAudio();
+      message('设备朗读未能播放，请再点一次。');
     };
     speechSynthesis.speak(speech);
     message('正在使用设备备用语音。');
   });
 }
 
-function audioControls(word, kind, onPlay) {
-  const controls = element('div', '', 'row audio-controls');
-  const title = kind === 'word' ? '单词' : '例句';
-  const begin = speed => {
-    play(word, kind, speed);
+function audioButton(label, stem, fallback, { name, className, onPlay } = {}) {
+  const control = button('▶ ' + label, () => {
+    playAudio(control, stem, fallback);
     onPlay?.();
-  };
-  controls.append(
-    button('▶ ' + title, () => begin(data.prefs.speed), 'primary'),
-    button('慢速', () => begin('slow')),
-    button('重播', () => begin(lastClip?.word.id === word.id && lastClip.kind === kind ? lastClip.speed : data.prefs.speed)),
-  );
-  return controls;
+  }, className ?? 'audio-button');
+  if (name) control.setAttribute('aria-label', name);
+  return control;
+}
+
+function mainAudio(word, kind, options) {
+  if (kind === 'word') return audioButton('单词', word.audioWord ?? word.id + '-word',
+    word.audioWord ? null : word.id, options);
+  return audioButton('例句', word.audioSentence ?? word.id + '-sentence',
+    word.audioSentence ? null : word.sentence, options);
 }
 
 function refreshToday() {
@@ -237,9 +248,9 @@ function renderStudy() {
     const options = element('div', '', 'options');
     if (skill === 'listening') {
       options.hidden = !answered.played;
-      body.append(audioControls(word, 'sentence', () => {
+      body.append(mainAudio(word, 'sentence', { className: 'primary', onPlay: () => {
         if (options.hidden) updateCard(item, { played: true }, () => { options.hidden = false; });
-      }));
+      } }));
     } else {
       body.append(exampleSentence(word));
     }
@@ -266,6 +277,113 @@ function undoLast() {
   });
 }
 
+function ipaLabel(ipa, ipaUS) {
+  return element('span', ipaUS && ipaUS !== ipa ? '英 ' + ipa + ' · 美 ' + ipaUS : ipa, 'ipa');
+}
+
+function evidenceLink(source, label) {
+  const link = element('a', label + ' · ' + source.label, 'source-link');
+  link.href = source.url;
+  link.target = '_blank';
+  link.rel = 'noopener noreferrer';
+  return link;
+}
+
+function exampleSource(entry) {
+  return entry.exampleType === 'adapted'
+    ? evidenceLink(entry.exampleSource, '真题语境改写')
+    : element('span', '原创教学例句', 'example-origin');
+}
+
+function senseLevel(item, id, meaning) {
+  const control = element('select', '', 'sense-level');
+  control.setAttribute('aria-label', meaning + '的掌握度');
+  for (const [value, text] of [['', '掌握度'], ['weak', '薄弱'], ['learning', '练习中'], ['strong', '熟悉']]) {
+    const option = element('option', text);
+    option.value = value;
+    control.append(option);
+  }
+  const key = item.word.id + ':' + id;
+  const getLevel = () => data.senseLevels?.[key] ?? '';
+  control.value = getLevel();
+  control.addEventListener('change', () => {
+    const level = control.value;
+    control.value = getLevel();
+    save(previous => current(previous, words)?.id === item.id
+      ? setSenseLevel(previous, item, id, level) : previous, () => { control.value = getLevel(); });
+  });
+  return control;
+}
+
+function usageEvidence(container, sources) {
+  for (const source of sources) {
+    const label = source.kind === 'reference' ? '参考范文'
+      : source.kind === 'prompt' ? '真题作文题面'
+        : source.kind === 'transcript' ? '真题听力文字稿' : '真题阅读正文';
+    const link = evidenceLink(source, label);
+    const form = element('strong', source.form);
+    form.lang = 'en';
+    const row = element('p');
+    row.append(form, document.createTextNode(' · '), link);
+    container.append(row);
+  }
+}
+
+function wordSenses(item) {
+  const { word } = item;
+  const section = element('section', '', 'word-core stack');
+  const caption = element('p', '重点词与义项', 'eyebrow');
+  const heading = element('h3', word.id, 'word-head');
+  heading.lang = 'en';
+  section.append(caption, heading);
+  const primary = { ...word, id: 'main' };
+  const firstVerb = [primary, ...(word.senses ?? [])].find(sense => sense.pos.startsWith('v.'));
+  for (const sense of [primary, ...(word.senses ?? [])]) {
+    const isMain = sense === primary;
+    const block = element('section', '', 'word-sense stack');
+    block.dataset.sense = sense.id;
+    const title = element('h4', sense.meaning);
+    title.prepend(element('span', sense.pos, 'badge part-of-speech'));
+    const header = element('div', '', 'sense-heading');
+    header.append(title, senseLevel(item, sense.id, sense.meaning));
+    block.append(header);
+    const evidence = sense.evidence ?? (isMain && word.source?.kind !== 'reference' && word.source ? [word.source] : []);
+    const statusLabel = evidence.length ? sense.evidenceLabel ?? '真题有据' : '教学补充';
+    if (isMain || sense.ipa || sense.pos !== word.pos) {
+      block.append(sense.ipa ? ipaLabel(sense.ipa, sense.ipaUS) : ipaLabel(word.ipa, word.ipaUS));
+    }
+    const pattern = element('p', sense.collocation, 'collocation');
+    pattern.lang = 'en';
+    const meta = element('div', '', 'sense-meta');
+    meta.append(pattern, element('span', statusLabel,
+      evidence.length && !sense.evidenceLabel ? 'sense-evidence verified' : 'sense-evidence'));
+    block.append(meta);
+    if (sense === firstVerb && word.past) {
+      const forms = element('p', '', 'verb-forms');
+      const past = element('strong', word.past);
+      const participle = element('strong', word.participle);
+      past.lang = participle.lang = 'en';
+      forms.append('过去式 ', past, ' · 过去分词 ', participle);
+      block.append(forms);
+    }
+    if (!isMain) {
+      const example = element('p', sense.example, 'semantic-example');
+      example.lang = 'en';
+      const controls = element('div', '', 'row compact-audio');
+      if (sense.ipa) controls.append(audioButton('单词', word.id + '-' + sense.id + '-word', null,
+        { name: '朗读 ' + word.id + ' ' + sense.pos }));
+      controls.append(audioButton('例句', word.id + '-' + sense.id + '-sentence', sense.example,
+        { name: '朗读例句 ' + sense.meaning }));
+      const details = element('details', '', 'semantic-hint');
+      details.append(element('summary', '识别依据' + (evidence.length ? '与出处' : '')), element('p', sense.context));
+      usageEvidence(details, evidence);
+      block.append(example, element('p', sense.translation, 'muted'), controls, exampleSource(sense), details);
+    }
+    section.append(block);
+  }
+  return section;
+}
+
 function semanticFeedback(word) {
   const section = element('section', '', 'semantic-feedback stack');
   const choices = element('div', '', 'semantic-choices');
@@ -273,28 +391,40 @@ function semanticFeedback(word) {
   choices.setAttribute('aria-label', '选择要对比的表达');
   const comparison = element('div', '', 'semantic-comparison stack');
   comparison.setAttribute('aria-live', 'polite');
-
-  function select(related, selected) {
-    for (const choice of choices.children) {
-      choice.setAttribute('aria-pressed', String(choice === selected));
-    }
+  const controls = [];
+  function select(related, selected, stem) {
+    stopAudio();
+    for (const choice of controls) choice.setAttribute('aria-pressed', String(choice === selected));
+    const sense = word.senses?.find(entry => entry.id === related.senseId) ?? word;
+    const context = element('p', sense.pos + ' ' + sense.meaning, 'muted');
     const title = element('h4', word.id + ' / ' + related.term);
     title.lang = 'en';
     const example = element('p', related.example, 'semantic-example');
     example.lang = 'en';
-    comparison.replaceChildren(title, element('p', related.comparison), example,
-      element('p', related.translation, 'muted'));
+    comparison.replaceChildren(context, title, element('p', related.comparison), example,
+      element('p', related.translation, 'muted'),
+      audioButton('例句', stem + '-sentence', related.example, { name: '朗读 ' + related.term + ' 对比例句' }),
+      exampleSource(related));
   }
 
   for (const related of word.related) {
-    const choice = button('', () => select(related, choice), 'semantic-choice');
+    const stem = word.id + '-' + related.term.toLowerCase().replace(/[^a-z]+/g, '-') + '-related';
+    const row = element('div', '', 'semantic-option');
+    const choice = button('', () => select(related, choice, stem), 'semantic-choice');
     const term = element('strong', related.term);
     term.lang = 'en';
-    choice.append(element('span', related.kind, 'semantic-kind'), term, element('span', related.meaning, 'muted'));
-    choices.append(choice);
+    choice.append(element('span', related.kind, 'semantic-kind'), term, ipaLabel(related.ipa, related.ipaUS),
+      element('span', related.meaning, 'muted'));
+    const ambiguous = ['overestimate', 'increase', 'interrupt'].includes(related.term);
+    const play = audioButton('', stem + '-word', ambiguous ? null : related.term,
+      { name: '朗读 ' + related.term, className: 'semantic-play' });
+    play.textContent = '▶';
+    row.append(choice, play);
+    controls.push(choice);
+    choices.append(row);
   }
-  select(word.related[0], choices.firstElementChild);
-  section.append(element('h3', '放在语境里对比'), choices, comparison);
+  controls[0]?.click();
+  section.append(element('h3', '关联词辨析'), choices, comparison);
   return section;
 }
 
@@ -310,58 +440,27 @@ function showFeedback(item, { correct, revealed }, scored, body) {
   result.append(element('strong', outcome), element('p', scored ? '已评分 · 可回看'
     : correct ? '请按实际回忆难度评分。' : '看完解析后可记录为忘记。'));
   verdict.append(icon, result);
-  const head = element('h3', word.id + ' ' + word.ipa);
-  head.lang = 'en-GB';
-  const meaning = element('section', '', 'explanation stack');
-  const definition = element('p', word.meaning, 'definition');
-  definition.prepend(element('span', word.pos, 'badge part-of-speech'));
-  meaning.append(head, definition, element('h4', '语境线索'), element('p', word.context));
   const usage = element('section', '', 'explanation stack');
   const collocation = element('p', word.collocation, 'collocation');
   collocation.lang = 'en';
+  const audioRow = element('div', '', 'main-audio');
+  audioRow.append(mainAudio(word, 'word', { className: 'primary' }), mainAudio(word, 'sentence'));
+  const details = element('details', '', 'semantic-hint');
+  details.append(element('summary', '记忆提示与出处'), element('p', word.hint));
+  usageEvidence(details, word.evidence ?? (word.source ? [word.source] : []));
+  if (word.source?.kind === 'reference' && word.evidence?.length) usageEvidence(details, [word.source]);
+  if (!word.source && !word.evidence?.length) details.append(element('p', '选词依据 · 教学推荐'));
   usage.append(element('h3', '语境与搭配'), collocation, exampleSentence(word),
-    element('p', word.translation, 'muted'), audioControls(word, 'word'), audioControls(word, 'sentence'));
-  box.append(verdict, meaning, usage);
+    element('p', word.translation, 'muted'), audioRow, exampleSource(word),
+    element('h4', '为什么是这个义项'), element('p', word.context), details);
+  box.append(verdict, wordSenses(item), usage);
   if (word.related?.length) box.append(semanticFeedback(word));
-  if (word.senses?.length) {
-    const senses = element('section', '', 'senses stack');
-    senses.append(element('h3', '一词多义'));
-    for (const sense of word.senses) {
-      const entry = element('div', '', 'explanation stack');
-      const example = element('p', sense.example, 'semantic-example');
-      example.lang = 'en';
-      const pattern = element('p', sense.collocation, 'collocation');
-      pattern.lang = 'en';
-      entry.append(element('h4', sense.pos + ' ' + sense.meaning), pattern, example,
-        element('p', sense.translation, 'muted'), element('p', sense.context));
-      senses.append(entry);
-    }
-    box.append(senses);
-  }
-  const hint = element('details', '', 'semantic-hint');
-  hint.append(element('summary', '记忆提示与易错点'), element('p', word.hint));
-  box.append(hint);
-  const source = element('section', '', 'source-note stack');
-  source.append(element('h3', '例句与词形出处'),
-    element('p', '本卡练习句、辨析句与补充义项例句均为原创教学语境。'));
-  if (word.source) {
-    const label = word.source.kind === 'reference' ? '参考范文词形' : '真题资料词形';
-    const evidence = element('p', label + ' · ');
-    const form = element('strong', word.source.form);
-    form.lang = 'en';
-    evidence.append(form);
-    const link = element('a', word.source.label, 'source-link');
-    link.href = word.source.url;
-    link.target = '_blank';
-    link.rel = 'noopener noreferrer';
-    source.append(evidence, link);
-  } else source.append(element('p', '选词依据 · 经验推荐'));
-  box.append(source);
   if (!scored) {
-    const grades = correct ? [[1, '忘记 / 猜对'], [2, '困难'], [3, '记得'], [4, '轻松']] : [[1, '记录为忘记']];
+    const grades = [[1, '忘记'], [2, '困难'], [3, '记住'], [4, '熟练']];
+    const score = element('section', '', 'score stack');
     const ratings = element('div', '', 'ratings');
     for (const [rating, label] of grades) {
-      ratings.append(button(label, () => {
+      const control = button(label, () => {
         stopAudio();
         let saved = false;
         save(previous => {
@@ -375,9 +474,12 @@ function showFeedback(item, { correct, revealed }, scored, body) {
             render();
           } else message('该卡已评分，或今日新词任务已结束。可返回首页检查到期任务。');
         });
-      }, rating === 3 || !correct ? 'primary' : ''));
+      }, rating === (correct ? 3 : 1) ? 'primary' : '');
+      control.disabled = !correct && rating !== 1;
+      ratings.append(control);
     }
-    box.append(ratings);
+    score.append(element('h3', 'FSRS 记忆评分'), ratings);
+    box.append(score);
   }
   body.append(box);
 }
@@ -453,7 +555,7 @@ function renderPlan() {
 }
 
 function renderSettings() {
-  for (const key of Object.keys(data.prefs)) $(key).value = data.prefs[key];
+  for (const key of ['accent', 'reminder', 'limit', 'target']) $(key).value = data.prefs[key];
   $('reminder-help').textContent = '网页保存的提醒时间是 ' + data.prefs.reminder + '。请在 iPhone 提醒事项里设为同一时间。';
 }
 
@@ -474,7 +576,7 @@ function render() {
   else renderSettings();
 }
 
-for (const key of ['accent', 'speed', 'limit', 'target', 'reminder']) {
+for (const key of ['accent', 'limit', 'target', 'reminder']) {
   $(key).addEventListener('change', event => {
     const input = event.currentTarget;
     if (!input.value || !input.checkValidity()) {
@@ -529,13 +631,21 @@ $('import').addEventListener('change', async event => {
 });
 
 window.addEventListener('hashchange', () => { stopAudio(); render(); });
-document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshToday(); });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) stopAudio();
+  else refreshToday();
+});
+window.addEventListener('pagehide', stopAudio);
 window.addEventListener('pageshow', refreshToday);
 setInterval(refreshToday, 30000);
 
+const release = document.documentElement.dataset.release;
+const preview = release !== 'production';
+$('preview-notice').hidden = !preview;
+if (preview) $('release-badge').textContent = 'G1 V5 · 预览';
 render();
 try {
-  store = await openStore();
+  store = await openStore(release);
   load(await store.load());
 } catch {
   $('start').textContent = '进度读取失败';

@@ -52,22 +52,31 @@ button:disabled { opacity: .6; cursor: default; }
 .options button { text-align: left; justify-content: flex-start; }
 .ratings { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
 .badge { border-radius: 999px; background: var(--accent-soft); padding: 4px 9px; font-size: .82rem; }
+.preview-notice { margin-bottom: 12px; color: var(--muted); font-size: .83rem; }
 .feedback { border-top: 1px solid var(--line); padding-top: 10px; overflow-wrap: anywhere; }
-.explanation, .semantic-feedback, .senses, .source-note { padding: 12px; border: 1px solid var(--line); border-radius: 12px; }
-.explanation, .semantic-feedback, .source-note { background: var(--surface); }
+.explanation, .semantic-feedback, .word-core { padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
 .feedback h3, .feedback h4 { font-size: 1rem; }
-.explanation h3:has(+ .definition) { font-size: 1.24rem; }
-.definition { font-weight: 700; }
+.word-core { background: #fcf4e9; border-color: #e8cbb7; }
+.word-core .eyebrow { color: var(--accent); }
+.feedback .word-head { font: 750 clamp(2rem, 8vw, 2.65rem)/1.05 Georgia, serif; color: #572f20; }
+.word-sense { background: var(--paper); padding: 9px 10px; border: 1px solid var(--line); border-radius: 9px; }
+.word-sense > * + * { margin-top: 5px; }
+.sense-heading, .sense-meta { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 5px 8px; }
+.ipa { color: var(--muted); font-size: .82rem; line-height: 1.45; }
 .part-of-speech { margin-inline-end: 8px; }
 .collocation { color: var(--accent); font-weight: 750; }
-.senses .explanation { margin-top: 9px; }
-.source-note { font-size: .87rem; color: var(--muted); }
-.source-link { display: inline-flex; align-items: center; min-height: 44px; }
-.semantic-choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-.semantic-choice { display: grid; align-content: start; justify-content: stretch; justify-items: start; gap: 4px; text-align: left; }
+.verb-forms, .example-origin, .source-link { font-size: .84rem; color: var(--muted); }
+.source-link { display: inline-flex; align-items: center; min-height: 44px; color: var(--accent); }
+.sense-evidence { border-radius: 5px; padding: 2px 5px; background: var(--surface); color: var(--muted); font-size: .74rem; }
+.sense-evidence.verified { background: #eaf0e7; color: #345946; }
+select.sense-level { width: auto; max-width: 100%; padding: 4px; color: var(--muted); }
+.semantic-choices { display: grid; gap: 7px; }
+.semantic-option { display: grid; grid-template-columns: minmax(0, 1fr) 44px; align-items: center; gap: 6px; }
+.semantic-choice { display: flex; flex-wrap: wrap; justify-content: flex-start; gap: 3px 8px; padding: 6px 9px; text-align: left; }
 .semantic-choice[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); }
+.semantic-play { padding: 0; color: var(--accent); }
 .semantic-kind { color: var(--accent); font-size: .75rem; }
-.semantic-choice .muted { font-weight: 500; }
+.semantic-choice .muted, .semantic-choice .ipa { font-weight: 500; }
 .semantic-comparison { background: var(--paper); padding: 12px; border-radius: 10px; }
 .semantic-example { font-weight: 650; }
 .semantic-hint summary { font-size: .92rem; }
@@ -95,6 +104,9 @@ footer { text-align: center; padding-top: 6px; }
 .lead { font-weight: 750; }
 progress { width: 100%; height: .72rem; accent-color: var(--accent); }
 .card-nav { border-top: 1px solid var(--line); padding-top: 12px; }
-.audio-controls { gap: 7px; }
+.main-audio { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.compact-audio { gap: 6px; }
+.audio-button { color: var(--accent); }
+button[data-playing] { outline: 2px solid var(--accent); outline-offset: 2px; }
 .reading-sentence { background: var(--paper); border: 1px solid var(--line); padding: 12px; border-radius: 8px; font: 1.15rem/1.6 Georgia, serif; }
 .reading-sentence mark { color: inherit; background: #f7dbc2; font-weight: 800; border-radius: 3px; padding-inline: 2px; }

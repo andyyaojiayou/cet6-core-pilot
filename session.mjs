@@ -8,6 +8,8 @@ const defaults = { accent: 'en-US', speed: 'normal', reminder: '20:30', limit: 3
 const object = x => x !== null && typeof x === 'object' && !Array.isArray(x);
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 const cardPattern = /^[a-z][a-z-]*:(listening|reading|writing)$/;
+const sensePattern = /^[a-z][a-z-]*:[a-z][a-z-]*$/;
+const senseLevels = ['weak', 'learning', 'strong'];
 const cardId = item => `${item.word.id}:${item.skill}`;
 
 export const createData = (progress = empty()) => ({
@@ -24,7 +26,7 @@ function validateSession(session) {
   for (const [id, data] of Object.entries(session.drafts)) {
     if (!session.ids.includes(id) || !object(data)
       || ['spelling', 'phrase'].some(key => data[key] !== undefined && (typeof data[key] !== 'string' || data[key].length > 180))
-      || ['played', 'correct'].some(key => data[key] !== undefined && typeof data[key] !== 'boolean')) {
+      || ['played', 'correct', 'revealed'].some(key => data[key] !== undefined && typeof data[key] !== 'boolean')) {
       throw new Error('答案草稿无效');
     }
   }
@@ -42,6 +44,10 @@ export function readBackup(raw) {
   if (data?.version === 1) return createData(parseBackup(raw));
   if (data?.version !== 2) throw new Error('备份版本无效');
   validateSnapshot(data);
+  if (data.senseLevels !== undefined && (!object(data.senseLevels)
+    || !Object.entries(data.senseLevels).every(([key, level]) => sensePattern.test(key) && senseLevels.includes(level)))) {
+    throw new Error('义项记录无效');
+  }
   if (data.undo !== null) {
     if (!object(data.undo)) throw new Error('撤销记录无效');
     validateSnapshot(data.undo);
@@ -88,6 +94,17 @@ export function draft(data, change) {
   return { ...data, session: { ...session, drafts: { ...session.drafts, [id]: { ...session.drafts[id], ...change } } } };
 }
 
+export function setSenseLevel(data, item, senseId, level) {
+  if (!item || (senseId !== 'main' && !item.word.senses?.some(sense => sense.id === senseId))
+    || (level !== '' && !senseLevels.includes(level))) return data;
+  const key = `${item.word.id}:${senseId}`;
+  if ((data.senseLevels?.[key] ?? '') === level) return data;
+  const next = { ...data.senseLevels };
+  if (level) next[key] = level;
+  else delete next[key];
+  return { ...data, senseLevels: next };
+}
+
 export function rate(data, words, rating, now) {
   const item = current(data, words);
   const session = data.session;
@@ -111,7 +128,9 @@ export function rate(data, words, rating, now) {
 }
 
 export function undo(data) {
-  return data.undo ? { ...data, ...data.undo, undo: null } : data;
+  if (!data.undo) return data;
+  const { progress, reviews, session } = data.undo;
+  return { ...data, progress, reviews, session, undo: null };
 }
 
 export function plan(data, words, now) {

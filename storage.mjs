@@ -1,15 +1,21 @@
-import { createData, readBackup } from './session.mjs';
+import { createData, readBackup } from './session.mjs?v=6';
 
 const database = 'cet6-vocabulary';
+const previewDatabase = 'cet6-vocabulary-preview-g1-v5-20261105';
 const storeName = 'learning';
 const recordKey = 'device';
 export const legacyKey = 'cet6-core-progress-v1';
 
 export class StaleProgress extends Error {}
 
-export async function openStore() {
+export function learningStoreForRelease(release) {
+  return release === 'production' ? database : previewDatabase;
+}
+
+export async function openStore(release = globalThis.document?.documentElement.dataset.release) {
+  const name = learningStoreForRelease(release);
   const db = await new Promise((resolve, reject) => {
-    const request = indexedDB.open(database, 1);
+    const request = indexedDB.open(name, 1);
     request.onupgradeneeded = () => request.result.createObjectStore(storeName);
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
@@ -44,7 +50,7 @@ export async function openStore() {
         readBackup(JSON.stringify(previous.data));
         return previous;
       }
-      const legacy = localStorage.getItem(legacyKey);
+      const legacy = name === database ? localStorage.getItem(legacyKey) : null;
       return { revision: 0, data: legacy ? readBackup(legacy) : createData() };
     }),
     save: (data, revision) => transaction(previous => {

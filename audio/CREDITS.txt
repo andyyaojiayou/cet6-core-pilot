@@ -1,8 +1,14 @@
-CET-6 G1 audio
+CET-6 G1 · 合成语音 / Synthesized audio
 
-All recordings are generated from the site's original English practice text.
+The clips are synthesized from the site's vocabulary and original English practice sentences.
 Engine: Piper 2023.11.14-2
 https://github.com/rhasspy/piper/releases/tag/2023.11.14-2
+
+The V5 additions use British and American eSpeak-ng phonemes for the respective
+models. New isolated clips use the word card's IPA. The example sentences use
+contextual phonemes with targeted adjustments for the articulate and overestimate
+endings. The new sentences are checked at 130–175 words per minute including pauses.
+https://github.com/rhasspy/piper-phonemize/blob/master/src/phonemize.cpp
 
 US: en_US-ljspeech-medium. Its model card lists the training corpus as public domain.
 https://huggingface.co/rhasspy/piper-voices/blob/main/en/en_US/ljspeech/medium/MODEL_CARD
