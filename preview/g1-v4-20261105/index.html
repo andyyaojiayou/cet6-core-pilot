@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f6f2ec">
+  <title>词间 · 六级词汇</title>
+  <link rel="stylesheet" href="./style.css?v=5">
+</head>
+<body>
+  <main>
+    <header class="mast"><span class="brand">词间 <span>· 六级核心词汇冲刺</span></span><span class="badge">G1 · 15 词</span></header>
+    <p class="notice" id="notice" role="status" hidden></p>
+    <section id="learn-page">
+    <section class="hero" id="hero" aria-labelledby="title">
+      <p class="eyebrow"><span lang="en">TODAY</span> · 今日</p>
+      <h1 id="title">每个单词，<span>都记得更久。</span></h1>
+      <div class="daily-quote" id="daily-quote" hidden>
+        <p id="quote-en" lang="en"></p>
+        <p id="quote-zh"></p>
+      </div>
+      <p class="hero-guide">先复习到期词，再学新词。</p>
+    </section>
+    <section class="metrics" aria-label="今日进度">
+      <div><strong id="due">—</strong><span>到期训练卡</span></div>
+      <div><strong id="fresh">—</strong><span>今日新学词</span></div>
+      <div><strong id="remaining">—</strong><span>未完成任务</span></div>
+    </section>
+    <section class="panel" id="study" aria-label="词汇训练">
+      <h2>开始今日练习</h2>
+      <p>先在脑中回忆，再提交答案。每次完成都会安排下次复习。</p>
+      <button class="primary" id="start" type="button" disabled>读取进度中</button>
+    </section>
+    </section>
+    <section id="plan-page" hidden aria-labelledby="plan-title">
+      <section class="panel" id="plan-summary">
+        <p class="eyebrow">截至 2026 年 11 月 30 日</p>
+        <h1 id="plan-title">学习计划</h1>
+        <div id="goal-stats"></div>
+      </section>
+      <section class="panel"><h2>阶段进度</h2><div id="stages" class="stack"></div></section>
+      <section class="panel"><h2>听、读、写</h2><ul id="skills"></ul></section>
+      <section class="panel"><h2>最近 7 天</h2><ul id="week"></ul></section>
+    <details class="panel">
+      <summary>逐词进度</summary>
+      <p class="muted">已学习指完成首次主动回忆。已掌握需要跨日到期复测通过。答错或处于重学阶段时列入待巩固。</p>
+      <ul id="progress"></ul>
+    </details>
+    </section>
+    <section id="settings-page" hidden aria-labelledby="settings-title">
+      <section class="panel">
+        <h1 id="settings-title">设置</h1>
+        <label class="field">发音口音
+          <select id="accent"><option value="en-US">美式英语</option><option value="en-GB">英式英语</option></select>
+        </label>
+        <label class="field">默认语速
+          <select id="speed"><option value="normal">正常</option><option value="slow">慢速</option></select>
+        </label>
+        <label class="field">每日新词上限（20–40）<input type="number" id="limit" min="20" max="40" inputmode="numeric"></label>
+        <label class="field">11 月 30 日掌握目标（15–1200）<input type="number" id="target" min="15" max="1200" inputmode="numeric"></label>
+      </section>
+      <section class="panel">
+        <h2>每日提醒</h2>
+        <label class="field">提醒时间<input type="time" id="reminder"></label>
+        <p id="reminder-help"></p>
+        <p>在 iPhone 打开「提醒事项」→ 新建「背六级单词」→ 设置日期和时间 → 重复选「每天」。把本页网址粘到 URL 或备注。</p>
+        <p class="muted">时间由 iPhone 提醒事项执行。改时间时编辑原来的提醒即可。</p>
+        <button type="button" id="copy-link">复制学习网址</button>
+        <a class="button" href="https://support.apple.com/zh-cn/guide/iphone/iphec7a1de82/ios">Apple 设置指南</a>
+      </section>
+      <section class="panel">
+      <h2>备份与恢复</h2>
+      <p>学习记录保存在当前浏览器。导出 JSON 后，可在同一浏览器或另一台设备恢复。导入会替换当前进度。</p>
+      <div class="row">
+        <button type="button" id="export">导出进度</button>
+        <label class="button" for="import">选择备份</label>
+        <input type="file" id="import" accept=".json,application/json" class="sr-only">
+      </div>
+      </section>
+    </section>
+    <footer>练习句由本站编写 · 双口音合成音频 · FSRS 复习</footer>
+  </main>
+  <nav class="tabs" aria-label="主导航">
+    <a href="#learn">学习</a><a href="#plan">计划</a><a href="#settings">设置</a>
+  </nav>
+  <script type="module" src="./app.mjs?v=5"></script>
+</body>
+</html>
