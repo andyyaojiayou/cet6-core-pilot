@@ -1,5 +1,7 @@
 import { dailyNew, day, empty, grade, parseBackup, queue, status } from './learning.mjs?v=2';
 
+const sprintStart = '2026-11-10';
+const sprintTarget = 650;
 export const reviewStart = '2026-11-27';
 export const targetDate = '2026-11-30';
 export const modes = ['listening', 'reading', 'writing'];
@@ -21,6 +23,7 @@ function validateSession(session) {
   if (!object(session) || !Array.isArray(session.ids) || !session.ids.every(id => cardPattern.test(id))
     || new Set(session.ids).size !== session.ids.length || !Number.isInteger(session.cursor)
     || session.cursor < 0 || session.cursor >= session.ids.length || !object(session.drafts)
+    || (session.check !== undefined && session.check !== true)
     || !Array.isArray(session.done) || new Set(session.done).size !== session.done.length
     || !session.done.every(id => session.ids.includes(id))) throw new Error('续学位置无效');
   validateDrafts(session.drafts, id => session.ids.includes(id));
@@ -37,9 +40,18 @@ function validateDrafts(drafts, validId) {
   }
 }
 
+function validateResults(results) {
+  if (results === undefined) return;
+  if (!object(results) || !Object.entries(results).every(([date, answers]) =>
+    datePattern.test(date) && object(answers) && Object.entries(answers).every(([id, answer]) =>
+      cardPattern.test(id) && typeof answer === 'boolean'))) throw new Error('复测结果无效');
+}
+
 function validateSnapshot(data) {
   parseBackup(JSON.stringify(data.progress));
   validateSession(data.session);
+  validateResults(data.retention);
+  validateResults(data.checks);
   if (!object(data.reviews) || !Object.entries(data.reviews).every(([date, count]) =>
     datePattern.test(date) && Number.isInteger(count) && count >= 0)) throw new Error('复习记录无效');
 }
@@ -57,13 +69,93 @@ export function readBackup(raw) {
   if (data.undo !== null) {
     if (!object(data.undo)) throw new Error('撤销记录无效');
     validateSnapshot(data.undo);
+    if (data.undo.deferredDrafts !== undefined) validateDrafts(data.undo.deferredDrafts, id => cardPattern.test(id));
   }
   const p = data.prefs;
   if (!object(p) || !['en-US', 'en-GB'].includes(p.accent) || !['normal', 'slow'].includes(p.speed)
     || !/^([01]\d|2[0-3]):[0-5]\d$/.test(p.reminder)
     || !Number.isInteger(p.limit) || p.limit < 20 || p.limit > 40
+    || (p.sprintBase !== undefined && (!Number.isInteger(p.sprintBase) || p.sprintBase < 30 || p.sprintBase > 50))
     || !Number.isInteger(p.target) || p.target < 15 || p.target > 1200) throw new Error('学习偏好无效');
   return data;
+}
+
+function unfinishedDrafts(data) {
+  const pending = { ...data.deferredDrafts };
+  for (const [id, answer] of Object.entries(data.session?.drafts ?? {})) {
+    if (!data.session.done.includes(id)) pending[id] = answer;
+  }
+  return pending;
+}
+
+function mergeSnapshot(local, imported) {
+  const cards = { ...local.progress.cards };
+  for (const [id, entry] of Object.entries(imported.progress.cards)) {
+    if (!cards[id] || Date.parse(entry.lastAt) > Date.parse(cards[id].lastAt)) cards[id] = entry;
+  }
+  const firstSeen = { ...local.progress.firstSeen };
+  for (const [id, date] of Object.entries(imported.progress.firstSeen)) {
+    if (!Object.hasOwn(firstSeen, id) || date < firstSeen[id]) firstSeen[id] = date;
+  }
+  const reviews = { ...local.reviews };
+  for (const [date, count] of Object.entries(imported.reviews)) reviews[date] = Math.max(reviews[date] ?? 0, count);
+
+  const owner = local.session ? local : imported;
+  const deferredDrafts = { ...unfinishedDrafts(imported), ...unfinishedDrafts(local) };
+  let session = owner.session;
+  if (session) {
+    const original = session;
+    const active = original.ids[original.cursor];
+    const ids = original.ids.filter(id => original.done.includes(id)
+      || cards[id]?.lastAt === owner.progress.cards[id]?.lastAt);
+    const pending = ids.filter(id => !original.done.includes(id));
+    const drafts = {};
+    for (const id of ids) {
+      const answer = original.done.includes(id) ? original.drafts[id] : deferredDrafts[id];
+      if (answer) drafts[id] = answer;
+      delete deferredDrafts[id];
+    }
+    const cursor = ids.indexOf(pending.includes(active) ? active : pending[0]);
+    session = pending.length ? { ...original, ids, cursor, drafts } : null;
+  }
+  const merged = { progress: { version: 1, cards, firstSeen }, reviews, session, deferredDrafts };
+  for (const field of ['retention', 'checks']) {
+    if (!local[field] && !imported[field]) continue;
+    const days = { ...local[field] };
+    for (const [date, answers] of Object.entries(imported[field] ?? {})) {
+      days[date] = { ...answers, ...days[date] };
+    }
+    merged[field] = days;
+  }
+  return merged;
+}
+
+export function mergeBackup(local, imported) {
+  const merged = mergeSnapshot(local, imported);
+  const mergedUndo = local.undo ? mergeSnapshot(local.undo, imported) : null;
+  const untouched = !local.session && !Object.keys(local.progress.cards).length;
+  return {
+    ...local, ...merged,
+    senseLevels: { ...imported.senseLevels, ...local.senseLevels },
+    undo: mergedUndo ?? (untouched ? imported.undo : null),
+  };
+}
+
+function resumeDrafts(data, ids) {
+  const drafts = {};
+  const deferredDrafts = { ...data.deferredDrafts };
+  for (const id of ids) {
+    const answer = deferredDrafts[id];
+    if (!answer) continue;
+    if (Object.hasOwn(data.progress.cards, id)) {
+      const { spelling, phrase } = answer;
+      drafts[id] = { spelling, phrase };
+    } else {
+      drafts[id] = answer;
+    }
+    delete deferredDrafts[id];
+  }
+  return { drafts, deferredDrafts };
 }
 
 export function current(data, words) {
@@ -74,14 +166,44 @@ export function current(data, words) {
   return word?.skills.includes(skill) ? { id, word, skill } : null;
 }
 
+export function sprintBase(data) {
+  return data.prefs.sprintBase ?? Math.max(30, data.prefs.limit);
+}
+
+function sprintPlan(data, words, date) {
+  const remainingDays = Math.max(0, (Date.parse(reviewStart) - Date.parse(date)) / dayMs);
+  let learned = 0;
+  let today = 0;
+  for (const { id } of words) {
+    const firstSeen = data.progress.firstSeen[id];
+    if (!firstSeen) continue;
+    learned++;
+    if (firstSeen === date) today++;
+  }
+  const remaining = Math.max(0, sprintTarget - learned);
+  const atStart = remaining + today;
+  const required = remainingDays > 0 ? Math.ceil(atStart / remainingDays) : 0;
+  const base = sprintBase(data);
+  const quota = date < sprintStart ? data.prefs.limit
+    : remainingDays === 0 ? 0
+    : Math.min(atStart, 50, date === sprintStart ? base : Math.max(base, required));
+  return {
+    target: sprintTarget, open: words.length, learned, today, remaining, remainingDays, quota,
+    required, shortfall: Math.max(0, remaining - Math.max(0, 50 * remainingDays - today)),
+  };
+}
+
 export function pending(data, words, now) {
+  const date = day(now);
   const tasks = queue(data.progress, words, now);
-  const capacity = day(now) < reviewStart ? Math.max(0, data.prefs.limit - dailyNew(data.progress, now)) : 0;
-  return { ...tasks, new: tasks.new.slice(0, capacity), extra: day(now) < reviewStart ? tasks.extra : [] };
+  const sprint = sprintPlan(data, words, date);
+  const capacity = Math.max(0, sprint.quota - sprint.today);
+  return { ...tasks, new: tasks.new.slice(0, capacity), extra: date < reviewStart ? tasks.extra : [] };
 }
 
 export function reviewSession(data, words, now) {
   const previous = data.session;
+  if (previous?.check) return day(now) > targetDate ? { ...data, session: null } : data;
   if (day(now) < reviewStart || !previous?.ids.some(id => !Object.hasOwn(data.progress.cards, id))) return data;
   const ids = pending(data, words, now).due.map(cardId).filter(id => !previous.done.includes(id));
   const drafts = {};
@@ -110,7 +232,9 @@ export function startSession(data, words, now) {
     return { ...data, session: { ...data.session, ids, cursor } };
   }
   const ids = [...tasks.due, ...tasks.extra, ...tasks.new].map(cardId);
-  return { ...data, session: ids.length ? { ids, cursor: 0, drafts: {}, done: [] } : null };
+  if (!ids.length) return { ...data, session: null };
+  const { drafts, deferredDrafts } = resumeDrafts(data, ids);
+  return { ...data, deferredDrafts, session: { ids, cursor: 0, drafts, done: [] } };
 }
 
 export function move(data, offset) {
@@ -137,34 +261,110 @@ export function setSenseLevel(data, item, senseId, level) {
   return { ...data, senseLevels: next };
 }
 
+function checkPools(data, words, date) {
+  const checked = data.checks?.[date] ?? {};
+  return modes.map(skill => ({
+    remaining: Math.max(0, 5 - Object.keys(checked).filter(id => id.endsWith(':' + skill)).length),
+    ids: words.filter(word => word.skills.includes(skill)
+      && data.progress.firstSeen[word.id] < date
+      && Object.hasOwn(data.progress.cards, word.id + ':' + skill)
+      && !Object.hasOwn(checked, word.id + ':' + skill))
+      .map(word => word.id + ':' + skill),
+  }));
+}
+
+export function checkAvailable(data, words, now) {
+  const date = day(now);
+  return date >= reviewStart && date <= targetDate && !data.session && !queue(data.progress, words, now).due.length
+    && checkPools(data, words, date).some(pool => pool.remaining && pool.ids.length);
+}
+
+export function beginCheck(data, words, now, random = Math.random) {
+  if (!checkAvailable(data, words, now)) return data;
+  const selected = [];
+  for (const { remaining, ids } of checkPools(data, words, day(now))) {
+    for (let index = 0; index < remaining && ids.length; index++) {
+      selected.push(ids.splice(Math.floor(random() * ids.length), 1)[0]);
+    }
+  }
+  return { ...data, session: { ids: selected, cursor: 0, drafts: {}, done: [], check: true } };
+}
+
+function advanceSession(session, id) {
+  const done = [...session.done, id];
+  const candidates = [...session.ids.slice(session.cursor + 1), ...session.ids.slice(0, session.cursor)];
+  const next = candidates.find(candidate => !done.includes(candidate));
+  return next ? { ...session, done, cursor: session.ids.indexOf(next) } : null;
+}
+
+function noteResult(results, date, id, answer) {
+  if (Object.hasOwn(results?.[date] ?? {}, id)) return results;
+  return { ...results, [date]: { ...results?.[date], [id]: answer } };
+}
+
+export function recordCheck(data, words, now) {
+  const session = data.session;
+  const date = day(now);
+  if (!session?.check || date < reviewStart || date > targetDate) return data;
+  const item = current(data, words);
+  if (!item || session.done.includes(item.id)) return data;
+  const answer = session.drafts[item.id]?.correct;
+  if (typeof answer !== 'boolean') return data;
+  return { ...data, checks: noteResult(data.checks, date, item.id, answer), session: advanceSession(session, item.id) };
+}
+
 export function rate(data, words, rating, now) {
   const item = current(data, words);
   data = reviewSession(data, words, now);
   if (item?.id !== current(data, words)?.id) return data;
   const session = data.session;
-  if (!item || session.done.includes(item.id)) return data;
+  if (!item || session.check || session.done.includes(item.id)) return data;
   const answer = session.drafts[item.id]?.correct;
   if (typeof answer !== 'boolean' || (!answer && rating !== 1)) return data;
   const previous = data.progress.cards[item.id];
   const wasLearned = Object.hasOwn(data.progress.firstSeen, item.word.id);
-  if (!previous && (day(now) >= reviewStart || (!wasLearned && dailyNew(data.progress, now) >= data.prefs.limit))) return data;
   const today = day(now);
-  const done = [...session.done, item.id];
-  const candidates = [...session.ids.slice(session.cursor + 1), ...session.ids.slice(0, session.cursor)];
-  const next = candidates.find(id => !done.includes(id));
-  return {
+  if (!previous) {
+    if (today >= reviewStart) return data;
+    if (!wasLearned) {
+      const sprint = sprintPlan(data, words, today);
+      if (sprint.today >= sprint.quota) return data;
+    }
+  }
+  const next = {
     ...data,
     progress: grade(data.progress, item, rating, now),
     reviews: previous ? { ...data.reviews, [today]: (data.reviews[today] ?? 0) + 1 } : data.reviews,
-    session: next ? { ...session, done, cursor: session.ids.indexOf(next) } : null,
+    session: advanceSession(session, item.id),
     undo: { progress: data.progress, reviews: data.reviews, session },
   };
+  if (previous && day(new Date(previous.lastAt)) < today && new Date(previous.fsrs.due) <= now) {
+    next.retention = noteResult(data.retention, today, item.id, answer);
+    next.undo.retention = data.retention ?? {};
+  }
+  return next;
 }
 
 export function undo(data) {
   if (!data.undo) return data;
   const { progress, reviews, session } = data.undo;
-  return { ...data, progress, reviews, session, undo: null };
+  const restored = { ...data, progress, reviews, session, undo: null };
+  if (data.undo.retention !== undefined) restored.retention = data.undo.retention;
+  if (data.undo.deferredDrafts !== undefined) restored.deferredDrafts = data.undo.deferredDrafts;
+  return restored;
+}
+
+function countResults(results, skill) {
+  let correct = 0;
+  let total = 0;
+  for (const answers of Object.values(results ?? {})) {
+    for (const [id, answer] of Object.entries(answers)) {
+      if (skill && !id.endsWith(':' + skill)) continue;
+      total++;
+      if (answer) correct++;
+    }
+  }
+  return { correct, total };
 }
 
 export function plan(data, words, now) {
@@ -181,11 +381,13 @@ export function plan(data, words, now) {
   const measured = completed.filter(entry => entry.date >= first && entry.date < reviewStart);
   const pace = studied.length >= 3 && measured.length >= 3
     ? measured.reduce((sum, entry) => sum + entry.learned, 0) / measured.length : null;
-  const remainingDays = Math.max(0, (Date.parse(reviewStart) - time) / dayMs);
-  const learned = words.filter(word => Object.hasOwn(data.progress.firstSeen, word.id)).length;
+  const sprint = sprintPlan(data, words, today);
+  const { learned, remainingDays } = sprint;
   const mastered = words.filter(word => status(data.progress, word) === '已掌握').length;
   return {
-    days, today: dailyNew(data.progress, now), learned, mastered, pace, remainingDays,
+    days, sprint, retention: countResults(data.retention),
+    checks: Object.fromEntries(modes.map(skill => [skill, countResults(data.checks, skill)])),
+    today: dailyNew(data.progress, now), learned, mastered, pace, remainingDays,
     weak: words.filter(word => status(data.progress, word) === '待巩固').length,
     forecast: pace === null ? null : Math.min(words.length, Math.max(learned, Math.floor(learned + pace * remainingDays))),
   };

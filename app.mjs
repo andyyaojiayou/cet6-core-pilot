@@ -1,9 +1,9 @@
 import { words } from './words.mjs?v=9';
 import { dailyNew, day, status, writingCorrect } from './learning.mjs?v=2';
 import { dailyQuote } from './daily-quote.mjs';
-import { createData, current, draft, modes, move, pending, plan, rate, readBackup,
-  reviewSession, reviewStart, setSenseLevel, startSession, targetDate, undo } from './session.mjs?v=7';
-import { openStore, StaleProgress } from './storage.mjs?v=8';
+import { beginCheck, checkAvailable, createData, current, draft, mergeBackup, modes, move, pending, plan, rate, readBackup, recordCheck,
+  reviewSession, sprintBase, reviewStart, setSenseLevel, startSession, targetDate, undo } from './session.mjs?v=8';
+import { openStore, StaleProgress } from './storage.mjs?v=9';
 
 const $ = id => document.getElementById(id);
 const names = { listening: '听力', reading: '阅读', writing: '写作' };
@@ -177,7 +177,7 @@ function renderStudy() {
   const item = current(data, words);
   if (!active || !item) {
     active = false;
-    const start = button(item ? '继续上次学习' : '开始学习', () => {
+    const start = button(item ? (data.session?.check ? '继续阶段抽测' : '继续上次学习') : '开始学习', () => {
       save(previous => startSession(previous, words, new Date()), () => {
         active = Boolean(current(data, words));
         render();
@@ -191,7 +191,13 @@ function renderStudy() {
       : '先复习到期卡，再做主动回忆。';
     study.replaceChildren(element('h2', item ? '从上次停下的地方继续' : '今日练习'), element('p', detail), start);
     const actions = element('div', '', 'row');
-    if (data.undo) actions.append(button('撤销上次评分', undoLast));
+    if (checkAvailable(data, words, new Date())) actions.append(button('开始阶段抽测', () => {
+      save(previous => beginCheck(previous, words, new Date()), () => {
+        active = Boolean(current(data, words));
+        render();
+      });
+    }));
+    if (data.undo && !data.session?.check) actions.append(button('撤销上次评分', undoLast));
     if (item) actions.append(button('结束当前任务', () => {
       if (!confirm('结束当前任务？未提交的答案草稿会清空，已保存的学习与复习记录会保留。')) return;
       save(previous => ({ ...previous, session: null }), render);
@@ -209,7 +215,7 @@ function renderStudy() {
   header.append(element('span', names[skill], 'badge'), element('span', word.theme, 'badge'),
     element('span', '第 ' + (session.cursor + 1) + ' / ' + session.ids.length + ' 张', 'muted'));
   const titles = { listening: '听句子，辨认词义', reading: '看语境，选出词义', writing: '看中文，拼写并写出搭配' };
-  const title = element('h2', titles[skill]);
+  const title = element('h2', (session.check ? '抽测 · ' : '') + titles[skill]);
   const body = element('div', '', 'stack');
   const nav = element('div', '', 'row card-nav');
   const previous = button('上一张', () => navigate(-1));
@@ -217,7 +223,7 @@ function renderStudy() {
   previous.disabled = session.cursor === 0;
   next.disabled = session.cursor === session.ids.length - 1;
   nav.append(previous, next, button('返回首页', () => { stopAudio(); active = false; render(); }));
-  if (data.undo) nav.append(button('撤销上次评分', undoLast));
+  if (data.undo && !session.check) nav.append(button('撤销上次评分', undoLast));
   study.replaceChildren(header, title, body, nav);
 
   if (answeredCard || scored) {
@@ -451,7 +457,9 @@ function showFeedback(item, { correct, revealed }, scored, body) {
   const icon = element('span', correct ? '✓' : revealed ? '↪' : '!', 'verdict-icon');
   icon.setAttribute('aria-hidden', 'true');
   const result = element('div');
-  result.append(element('strong', outcome), element('p', scored ? '已评分 · 可回看'
+  const checking = data.session?.check;
+  result.append(element('strong', outcome), element('p', checking ? (scored ? '抽测已记录' : '本题计入阶段抽测。')
+    : scored ? '已评分 · 可回看'
     : correct ? '请按实际回忆难度评分。' : '看完解析后可记录为忘记。'));
   verdict.append(icon, result);
   const usage = element('section', '', 'explanation stack');
@@ -469,7 +477,12 @@ function showFeedback(item, { correct, revealed }, scored, body) {
     element('h4', '为什么是这个义项'), element('p', word.context), details);
   box.append(verdict, wordSenses(item), usage);
   if (word.related?.length) box.append(semanticFeedback(word));
-  if (!scored) {
+  if (!scored && checking) {
+    box.append(button('记录抽测答案', () => {
+      stopAudio();
+      save(previous => current(previous, words)?.id === item.id ? recordCheck(previous, words, new Date()) : previous, render);
+    }, 'primary'));
+  } else if (!scored) {
     const grades = [[1, '忘记'], [2, '困难'], [3, '记住'], [4, '熟练']];
     const score = element('section', '', 'score stack');
     const ratings = element('div', '', 'ratings');
@@ -519,6 +532,23 @@ function renderPlan() {
     bar(stats.mastered, target, '总目标进度'),
     element('p', '已学习 ' + stats.learned + ' · 已掌握 ' + stats.mastered + ' · 待巩固 ' + stats.weak),
     element('p', '11 月 30 日预测 · ' + statusText, 'muted'));
+  const sprint = stats.sprint;
+  const unopened = Math.max(0, sprint.target - sprint.open);
+  const remainingToday = pending(data, words, now).new.length;
+  const paceText = sprint.remainingDays > 0
+    ? '今天还可学 ' + remainingToday + ' 个新词 · 先完成到期复习 · 剩余 ' + sprint.remainingDays + ' 个新词日'
+    : '进入集中复习 · 按 FSRS 做到期卡';
+  const sprintRows = [
+    element('h2', '首轮冲刺'),
+    element('p', '已完成 ' + sprint.learned + ' / ' + sprint.target + ' 词 · 当前开放 ' + sprint.open + ' 词'),
+    bar(sprint.learned, sprint.target, '首轮回忆进度'),
+    element('p', paceText),
+  ];
+  if (unopened) sprintRows.push(element('p', '还有 ' + unopened + ' 个计划词条待开放。', 'muted'));
+  if (sprint.shortfall && sprint.remainingDays > 0) {
+    sprintRows.push(element('p', '按每日 50 个上限，首轮仍差 ' + sprint.shortfall + ' 词。', 'muted'));
+  }
+  $('sprint-stats').replaceChildren(...sprintRows);
   const reviewDays = ['2026-11-27', '2026-11-28', '2026-11-29', targetDate];
   const stageData = [
     ['G1 · 15 词试学', words.filter(w => !w.tier), 15],
@@ -556,6 +586,13 @@ function renderPlan() {
     row.append(element('strong', names[skill]), element('span', '已学 ' + reviewed + ' · 已掌握 ' + passed + ' / ' + applicable.length));
     return row;
   }));
+  const formatResult = ({ correct, total }) => total === 0 ? '暂无样本'
+    : correct + ' / ' + total + ' · ' + Math.round(100 * correct / total) + '%' + (total < 5 ? ' · 样本较少' : '');
+  $('recall-results').replaceChildren(
+    element('p', '跨日到期回忆 ' + formatResult(stats.retention)),
+    ...modes.map(skill => element('p', names[skill] + '抽测 ' + formatResult(stats.checks[skill]))),
+    element('p', '11 月 27–30 日先完成到期复习，再按听读写抽测已学词。抽测结果单独记录。', 'muted'),
+  );
   $('week').replaceChildren(...stats.days.map(entry => {
     const row = element('li');
     row.append(element('strong', entry.date.slice(5)), element('span', '新学 ' + entry.learned + ' · 复习 ' + entry.reviewed));
@@ -570,7 +607,8 @@ function renderPlan() {
 }
 
 function renderSettings() {
-  for (const key of ['accent', 'speed', 'reminder', 'limit', 'target']) $(key).value = data.prefs[key];
+  for (const key of ['accent', 'speed', 'reminder', 'target']) $(key).value = data.prefs[key];
+  $('sprintBase').value = sprintBase(data);
   $('reminder-help').textContent = '网页保存的提醒时间是 ' + data.prefs.reminder + '。请在 iPhone 提醒事项里设为同一时间。';
 }
 
@@ -591,7 +629,7 @@ function render() {
   else renderSettings();
 }
 
-for (const key of ['accent', 'speed', 'limit', 'target', 'reminder']) {
+for (const key of ['accent', 'speed', 'sprintBase', 'target', 'reminder']) {
   $(key).addEventListener('change', event => {
     const input = event.currentTarget;
     if (!input.value || !input.checkValidity()) {
@@ -626,7 +664,7 @@ $('export').addEventListener('click', () => {
   setTimeout(() => URL.revokeObjectURL(url), 10000);
 });
 
-$('import').addEventListener('change', async event => {
+async function importProgress(event, combine) {
   const input = event.currentTarget;
   const [file] = input.files;
   input.value = '';
@@ -634,16 +672,22 @@ $('import').addEventListener('change', async event => {
   try {
     if (file.size > 2_000_000) throw new Error('备份文件过大');
     const restored = readBackup(await file.text());
-    if (!confirm('从备份恢复 ' + Object.keys(restored.progress.firstSeen).length + ' 个词条？当前学习进度将被替换。')) return;
-    save(() => reviewSession(restored, words, new Date()), () => {
+    const count = Object.keys(restored.progress.firstSeen).length;
+    const prompt = combine ? '合并备份中的 ' + count + ' 个词条？同一训练卡采用较新的排程。'
+      : '从备份恢复 ' + count + ' 个词条？当前学习进度将被替换。';
+    if (!confirm(prompt)) return;
+    save(previous => reviewSession(combine ? mergeBackup(previous, restored) : restored, words, new Date()), () => {
       active = false;
       render();
-      message('学习进度已恢复。');
-    }, true);
+      message(combine ? '学习进度已合并。' : '学习进度已恢复。');
+    }, !combine);
   } catch {
     message('无法导入此文件。请选择词间导出的有效 JSON 备份。');
   }
-});
+}
+
+$('import').addEventListener('change', event => importProgress(event, false));
+$('merge').addEventListener('change', event => importProgress(event, true));
 
 window.addEventListener('hashchange', () => { stopAudio(); render(); });
 document.addEventListener('visibilitychange', () => {
