@@ -8,6 +8,9 @@ import { g2BatchSeven } from './words-g2-07.mjs';
 import { g2BatchEight } from './words-g2-08.mjs';
 import { g2BatchNine } from './words-g2-09.mjs';
 import { g2BatchTen } from './words-g2-10.mjs';
+import { g3BatchOne } from './words-g3-01.mjs';
+import { g3BatchTwo } from './words-g3-02.mjs';
+import { g3BatchThree } from './words-g3-03.mjs';
 
 const nju = 'https://eol.nju.edu.cn/cet6/papers/202606-1.html';
 const nju3 = 'https://eol.nju.edu.cn/cet6/papers/202606-3.html';
@@ -419,4 +422,5 @@ const g1Words = [
 export const words = [
   ...g1Words, ...g2BatchOne, ...g2BatchTwo, ...g2BatchThree, ...g2BatchFour,
   ...g2BatchFive, ...g2BatchSix, ...g2BatchSeven, ...g2BatchEight, ...g2BatchNine, ...g2BatchTen,
+  ...g3BatchOne, ...g3BatchTwo, ...g3BatchThree,
 ];

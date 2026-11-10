@@ -1,4 +1,4 @@
-import { words } from './words.mjs?v=9';
+import { words } from './words.mjs?v=10';
 import { dailyNew, day, status, writingCorrect } from './learning.mjs?v=2';
 import { dailyQuote } from './daily-quote.mjs';
 import { beginCheck, checkAvailable, createData, current, draft, mergeBackup, modes, move, pending, plan, rate, readBackup, recordCheck,
@@ -552,9 +552,9 @@ function renderPlan() {
   const reviewDays = ['2026-11-27', '2026-11-28', '2026-11-29', targetDate];
   const stageData = [
     ['G1 · 15 词试学', words.filter(w => !w.tier), 15],
-    ['G2 · 150 词阶段', words, 150],
-    ['核心 A 级', words.filter(w => w.tier === 'A'), 500],
-    ['次核心 B 级', words.filter(w => w.tier === 'B'), 150],
+    ['G2 · 150 词阶段', words.slice(0, 150), 150],
+    ['G3 · 300 词阶段', words.slice(0, 300), 300],
+    ['G4 · 完整冲刺词库', words, sprint.target],
   ];
   const stageRows = stageData.map(([label, entries, goal]) => {
     const count = entries.filter(word => Object.hasOwn(data.progress.firstSeen, word.id)).length;
