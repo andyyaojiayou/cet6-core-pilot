@@ -1,9 +1,9 @@
-import { words } from './words.mjs?v=10';
+import { words } from './words.mjs?v=11';
 import { dailyNew, day, status, writingCorrect } from './learning.mjs?v=2';
 import { dailyQuote } from './daily-quote.mjs';
 import { beginCheck, checkAvailable, createData, current, draft, mergeBackup, modes, move, pending, plan, rate, readBackup, recordCheck,
-  reviewSession, sprintBase, reviewStart, setSenseLevel, startSession, targetDate, undo } from './session.mjs?v=8';
-import { openStore, StaleProgress } from './storage.mjs?v=9';
+  reviewSession, sprintBase, reviewStart, setSenseLevel, startSession, targetDate, undo } from './session.mjs?v=9';
+import { openStore, StaleProgress } from './storage.mjs?v=10';
 
 const $ = id => document.getElementById(id);
 const names = { listening: '听力', reading: '阅读', writing: '写作' };
@@ -191,7 +191,7 @@ function renderStudy() {
       : '先复习到期卡，再做主动回忆。';
     study.replaceChildren(element('h2', item ? '从上次停下的地方继续' : '今日练习'), element('p', detail), start);
     const actions = element('div', '', 'row');
-    if (checkAvailable(data, words, new Date())) actions.append(button('开始阶段抽测', () => {
+    if (checkAvailable(data, words, new Date())) actions.append(button(data.suspendedCheck ? '继续阶段抽测' : '开始阶段抽测', () => {
       save(previous => beginCheck(previous, words, new Date()), () => {
         active = Boolean(current(data, words));
         render();
@@ -637,7 +637,10 @@ for (const key of ['accent', 'speed', 'sprintBase', 'target', 'reminder']) {
       return;
     }
     const value = input.type === 'number' ? input.valueAsNumber : input.value;
-    save(previous => ({ ...previous, prefs: { ...previous.prefs, [key]: value } }), renderSettings);
+    save(previous => {
+      const next = { ...previous, prefs: { ...previous.prefs, [key]: value } };
+      return key === 'sprintBase' ? reviewSession(next, words, new Date()) : next;
+    }, renderSettings);
   });
 }
 

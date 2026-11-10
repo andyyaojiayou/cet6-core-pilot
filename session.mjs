@@ -50,6 +50,10 @@ function validateResults(results) {
 function validateSnapshot(data) {
   parseBackup(JSON.stringify(data.progress));
   validateSession(data.session);
+  if (data.suspendedCheck !== undefined) {
+    if (data.suspendedCheck?.check !== true) throw new Error('抽测断点无效');
+    validateSession(data.suspendedCheck);
+  }
   validateResults(data.retention);
   validateResults(data.checks);
   if (!object(data.reviews) || !Object.entries(data.reviews).every(([date, count]) =>
@@ -82,6 +86,7 @@ export function readBackup(raw) {
 
 function unfinishedDrafts(data) {
   const pending = { ...data.deferredDrafts };
+  if (data.session?.check) return pending;
   for (const [id, answer] of Object.entries(data.session?.drafts ?? {})) {
     if (!data.session.done.includes(id)) pending[id] = answer;
   }
@@ -111,14 +116,16 @@ function mergeSnapshot(local, imported) {
     const pending = ids.filter(id => !original.done.includes(id));
     const drafts = {};
     for (const id of ids) {
-      const answer = original.done.includes(id) ? original.drafts[id] : deferredDrafts[id];
+      const answer = original.check || original.done.includes(id) ? original.drafts[id] : deferredDrafts[id];
       if (answer) drafts[id] = answer;
-      delete deferredDrafts[id];
+      if (!original.check) delete deferredDrafts[id];
     }
     const cursor = ids.indexOf(pending.includes(active) ? active : pending[0]);
     session = pending.length ? { ...original, ids, cursor, drafts } : null;
   }
   const merged = { progress: { version: 1, cards, firstSeen }, reviews, session, deferredDrafts };
+  const parked = local.suspendedCheck ?? (!session?.check && (imported.suspendedCheck ?? (imported.session?.check ? imported.session : null)));
+  if (parked) merged.suspendedCheck = parked;
   for (const field of ['retention', 'checks']) {
     if (!local[field] && !imported[field]) continue;
     const days = { ...local[field] };
@@ -203,8 +210,24 @@ export function pending(data, words, now) {
 
 export function reviewSession(data, words, now) {
   const previous = data.session;
-  if (previous?.check) return day(now) > targetDate ? { ...data, session: null } : data;
-  if (day(now) < reviewStart || !previous?.ids.some(id => !Object.hasOwn(data.progress.cards, id))) return data;
+  const date = day(now);
+  if (previous?.check) {
+    if (date > targetDate) return { ...data, session: null, suspendedCheck: undefined };
+    const due = queue(data.progress, words, now).due.map(cardId);
+    if (!due.length) return data;
+    return openSession({ ...data, suspendedCheck: previous }, due);
+  }
+  if (date > targetDate && data.suspendedCheck) return { ...data, suspendedCheck: undefined };
+  if (date < reviewStart) {
+    const item = current(data, words);
+    if (!item || Object.hasOwn(data.progress.firstSeen, item.word.id)) return data;
+    const sprint = sprintPlan(data, words, date);
+    if (sprint.today < sprint.quota) return data;
+    const tasks = pending(data, words, now);
+    const ids = [...tasks.due, ...tasks.extra].map(cardId).filter(id => !previous.done.includes(id));
+    return openSession({ ...data, deferredDrafts: unfinishedDrafts(data) }, ids);
+  }
+  if (!previous?.ids.some(id => !Object.hasOwn(data.progress.cards, id))) return data;
   const ids = pending(data, words, now).due.map(cardId).filter(id => !previous.done.includes(id));
   const drafts = {};
   const deferredDrafts = { ...data.deferredDrafts };
@@ -232,6 +255,10 @@ export function startSession(data, words, now) {
     return { ...data, session: { ...data.session, ids, cursor } };
   }
   const ids = [...tasks.due, ...tasks.extra, ...tasks.new].map(cardId);
+  return openSession(data.session ? { ...data, deferredDrafts: unfinishedDrafts(data) } : data, ids);
+}
+
+function openSession(data, ids) {
   if (!ids.length) return { ...data, session: null };
   const { drafts, deferredDrafts } = resumeDrafts(data, ids);
   return { ...data, deferredDrafts, session: { ids, cursor: 0, drafts, done: [] } };
@@ -276,11 +303,12 @@ function checkPools(data, words, date) {
 export function checkAvailable(data, words, now) {
   const date = day(now);
   return date >= reviewStart && date <= targetDate && !data.session && !queue(data.progress, words, now).due.length
-    && checkPools(data, words, date).some(pool => pool.remaining && pool.ids.length);
+    && (Boolean(data.suspendedCheck) || checkPools(data, words, date).some(pool => pool.remaining && pool.ids.length));
 }
 
 export function beginCheck(data, words, now, random = Math.random) {
   if (!checkAvailable(data, words, now)) return data;
+  if (data.suspendedCheck) return { ...data, session: data.suspendedCheck, suspendedCheck: undefined };
   const selected = [];
   for (const { remaining, ids } of checkPools(data, words, day(now))) {
     for (let index = 0; index < remaining && ids.length; index++) {
@@ -306,6 +334,8 @@ export function recordCheck(data, words, now) {
   const session = data.session;
   const date = day(now);
   if (!session?.check || date < reviewStart || date > targetDate) return data;
+  const reviewed = reviewSession(data, words, now);
+  if (reviewed !== data) return reviewed;
   const item = current(data, words);
   if (!item || session.done.includes(item.id)) return data;
   const answer = session.drafts[item.id]?.correct;
