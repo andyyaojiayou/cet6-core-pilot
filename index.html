@@ -9,8 +9,8 @@
 </head>
 <body>
   <main>
-    <header class="mast"><span class="brand">词间 <span>· 六级核心词汇冲刺</span></span><span class="badge" id="release-badge">G1 V5 · 15 词</span></header>
-    <p class="preview-notice" id="preview-notice" hidden>V5 预览 · 学习进度与正式站分开保存</p>
+    <header class="mast"><span class="brand">词间 <span>· 六级核心词汇冲刺</span></span><span class="badge" id="release-badge">G2 正式版 · 150 词</span></header>
+    <p class="preview-notice" id="preview-notice" hidden>G2 预览 · 学习进度与正式站分开保存</p>
     <p class="notice" id="notice" role="status" hidden></p>
     <section id="learn-page">
     <section class="hero" id="hero" aria-labelledby="title">
@@ -54,6 +54,9 @@
         <label class="field">发音口音
           <select id="accent"><option value="en-US">美式英语</option><option value="en-GB">英式英语</option></select>
         </label>
+        <label class="field">播放速度
+          <select id="speed"><option value="normal">正常</option><option value="slow">慢速（0.78 倍）</option></select>
+        </label>
         <label class="field">每日新词上限（20–40）<input type="number" id="limit" min="20" max="40" inputmode="numeric"></label>
         <label class="field">11 月 30 日掌握目标（15–1200）<input type="number" id="target" min="15" max="1200" inputmode="numeric"></label>
       </section>
@@ -81,6 +84,6 @@
   <nav class="tabs" aria-label="主导航">
     <a href="#learn">学习</a><a href="#plan">计划</a><a href="#settings">设置</a>
   </nav>
-  <script type="module" src="./app.mjs?v=8"></script>
+  <script type="module" src="./app.mjs?v=9"></script>
 </body>
 </html>

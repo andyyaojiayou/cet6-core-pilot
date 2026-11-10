@@ -1,4 +1,4 @@
-CET-6 G1 · 合成语音 / Synthesized audio
+CET-6 · 合成语音 / Synthesized audio
 
 The clips are synthesized from the site's vocabulary and original English practice sentences.
 Engine: Piper 2023.11.14-2
@@ -9,6 +9,12 @@ models. New isolated clips use the word card's IPA. The example sentences use
 contextual phonemes with targeted adjustments for the articulate and overestimate
 endings. The new sentences are checked at 130–175 words per minute including pauses.
 https://github.com/rhasspy/piper-phonemize/blob/master/src/phonemize.cpp
+
+The G2 additions use the same models with fixed zero-noise settings. Isolated
+terms use the word cards' IPA. Targeted sentence phonemes distinguish verb and
+noun uses of affect, associate, attribute, and extract, and American noun stress
+in address. Added example sentences are measured at 130–175 words per minute
+including pauses.
 
 US: en_US-ljspeech-medium. Its model card lists the training corpus as public domain.
 https://huggingface.co/rhasspy/piper-voices/blob/main/en/en_US/ljspeech/medium/MODEL_CARD

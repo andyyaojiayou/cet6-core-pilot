@@ -1,9 +1,9 @@
-import { words } from './words.mjs?v=8';
-import { dailyNew, day, status, writingCorrect } from './learning.mjs';
+import { words } from './words.mjs?v=9';
+import { dailyNew, day, status, writingCorrect } from './learning.mjs?v=2';
 import { dailyQuote } from './daily-quote.mjs';
 import { createData, current, draft, modes, move, pending, plan, rate, readBackup,
-  reviewStart, setSenseLevel, startSession, targetDate, undo } from './session.mjs?v=6';
-import { openStore, StaleProgress } from './storage.mjs?v=7';
+  reviewSession, reviewStart, setSenseLevel, startSession, targetDate, undo } from './session.mjs?v=7';
+import { openStore, StaleProgress } from './storage.mjs?v=8';
 
 const $ = id => document.getElementById(id);
 const names = { listening: '听力', reading: '阅读', writing: '写作' };
@@ -96,6 +96,8 @@ function playAudio(control, stem, fallback) {
   if (audio.src !== source) audio.src = source;
   else if (audio.readyState > 0) audio.currentTime = 0;
   else audio.load();
+  const rate = data.prefs.speed === 'slow' ? 0.78 : 1;
+  audio.playbackRate = rate;
   playingButton = control;
   control.dataset.playing = '';
   audio.play().catch(() => {
@@ -107,6 +109,7 @@ function playAudio(control, stem, fallback) {
     }
     const speech = new SpeechSynthesisUtterance(fallback);
     speech.lang = accent;
+    speech.rate = rate;
     speech.voice = speechSynthesis.getVoices().find(voice => voice.lang === accent && voice.localService) ?? null;
     speech.onend = () => { if (token === playback) stopAudio(); };
     speech.onerror = () => {
@@ -130,7 +133,7 @@ function audioButton(label, stem, fallback, { name, className, onPlay } = {}) {
 
 function mainAudio(word, kind, options) {
   if (kind === 'word') return audioButton('单词', word.audioWord ?? word.id + '-word',
-    word.audioWord ? null : word.id, options);
+    word.audioWord || word.senses?.some(sense => sense.ipa) ? null : word.id, options);
   return audioButton('例句', word.audioSentence ?? word.id + '-sentence',
     word.audioSentence ? null : word.sentence, options);
 }
@@ -151,6 +154,17 @@ function refreshToday() {
   $('remaining').textContent = data.session
     ? data.session.ids.length - data.session.done.length
     : tasks.due.length + tasks.new.length + tasks.extra.length;
+}
+
+function refreshPhase() {
+  if (!ready || reviewSession(data, words, new Date()) === data) {
+    refreshToday();
+    return;
+  }
+  save(previous => reviewSession(previous, words, new Date()), () => {
+    stopAudio();
+    render();
+  });
 }
 
 function updateCard(item, change, after) {
@@ -270,7 +284,7 @@ function navigate(offset) {
 
 function undoLast() {
   stopAudio();
-  save(undo, () => {
+  save(previous => reviewSession(undo(previous), words, new Date()), () => {
     active = Boolean(current(data, words));
     render();
     message('已撤销上次评分，复习时间和进度已恢复。');
@@ -508,6 +522,7 @@ function renderPlan() {
   const reviewDays = ['2026-11-27', '2026-11-28', '2026-11-29', targetDate];
   const stageData = [
     ['G1 · 15 词试学', words.filter(w => !w.tier), 15],
+    ['G2 · 150 词阶段', words, 150],
     ['核心 A 级', words.filter(w => w.tier === 'A'), 500],
     ['次核心 B 级', words.filter(w => w.tier === 'B'), 150],
   ];
@@ -555,7 +570,7 @@ function renderPlan() {
 }
 
 function renderSettings() {
-  for (const key of ['accent', 'reminder', 'limit', 'target']) $(key).value = data.prefs[key];
+  for (const key of ['accent', 'speed', 'reminder', 'limit', 'target']) $(key).value = data.prefs[key];
   $('reminder-help').textContent = '网页保存的提醒时间是 ' + data.prefs.reminder + '。请在 iPhone 提醒事项里设为同一时间。';
 }
 
@@ -576,7 +591,7 @@ function render() {
   else renderSettings();
 }
 
-for (const key of ['accent', 'limit', 'target', 'reminder']) {
+for (const key of ['accent', 'speed', 'limit', 'target', 'reminder']) {
   $(key).addEventListener('change', event => {
     const input = event.currentTarget;
     if (!input.value || !input.checkValidity()) {
@@ -620,7 +635,7 @@ $('import').addEventListener('change', async event => {
     if (file.size > 2_000_000) throw new Error('备份文件过大');
     const restored = readBackup(await file.text());
     if (!confirm('从备份恢复 ' + Object.keys(restored.progress.firstSeen).length + ' 个词条？当前学习进度将被替换。')) return;
-    save(() => restored, () => {
+    save(() => reviewSession(restored, words, new Date()), () => {
       active = false;
       render();
       message('学习进度已恢复。');
@@ -633,20 +648,22 @@ $('import').addEventListener('change', async event => {
 window.addEventListener('hashchange', () => { stopAudio(); render(); });
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) stopAudio();
-  else refreshToday();
+  else refreshPhase();
 });
 window.addEventListener('pagehide', stopAudio);
-window.addEventListener('pageshow', refreshToday);
-setInterval(refreshToday, 30000);
+window.addEventListener('pageshow', refreshPhase);
+setInterval(refreshPhase, 30000);
 
 const release = document.documentElement.dataset.release;
 const preview = release !== 'production';
 $('preview-notice').hidden = !preview;
-if (preview) $('release-badge').textContent = 'G1 V5 · 预览';
+if (release === 'g2-preview') $('release-badge').textContent = 'G2 预览 · ' + words.length + ' 词';
+else if (preview) $('release-badge').textContent = 'G1 V5 · 预览';
 render();
 try {
   store = await openStore(release);
   load(await store.load());
+  await save(previous => reviewSession(previous, words, new Date()));
 } catch {
   $('start').textContent = '进度读取失败';
   message('当前进度无法读取。请重开 Safari 普通标签页，或在设置中恢复备份。');

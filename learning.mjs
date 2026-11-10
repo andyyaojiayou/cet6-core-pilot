@@ -59,7 +59,9 @@ export function queue(state, words, now = new Date()) {
 
 const normalize = value => value.normalize('NFKC').trim().toLowerCase().replace(/\s+/g, ' ');
 export function writingCorrect(word, spelling, phrase) {
-  return normalize(spelling) === word.id && word.accept.some(value => normalize(phrase) === normalize(value));
+  const written = normalize(spelling);
+  return (written === word.id || word.spellingAliases?.includes(written) === true)
+    && word.accept.some(value => normalize(phrase) === normalize(value));
 }
 
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);

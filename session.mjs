@@ -1,4 +1,4 @@
-import { dailyNew, day, empty, grade, parseBackup, queue, status } from './learning.mjs';
+import { dailyNew, day, empty, grade, parseBackup, queue, status } from './learning.mjs?v=2';
 
 export const reviewStart = '2026-11-27';
 export const targetDate = '2026-11-30';
@@ -23,8 +23,13 @@ function validateSession(session) {
     || session.cursor < 0 || session.cursor >= session.ids.length || !object(session.drafts)
     || !Array.isArray(session.done) || new Set(session.done).size !== session.done.length
     || !session.done.every(id => session.ids.includes(id))) throw new Error('续学位置无效');
-  for (const [id, data] of Object.entries(session.drafts)) {
-    if (!session.ids.includes(id) || !object(data)
+  validateDrafts(session.drafts, id => session.ids.includes(id));
+}
+
+function validateDrafts(drafts, validId) {
+  if (!object(drafts)) throw new Error('答案草稿无效');
+  for (const [id, data] of Object.entries(drafts)) {
+    if (!validId(id) || !object(data)
       || ['spelling', 'phrase'].some(key => data[key] !== undefined && (typeof data[key] !== 'string' || data[key].length > 180))
       || ['played', 'correct', 'revealed'].some(key => data[key] !== undefined && typeof data[key] !== 'boolean')) {
       throw new Error('答案草稿无效');
@@ -44,6 +49,7 @@ export function readBackup(raw) {
   if (data?.version === 1) return createData(parseBackup(raw));
   if (data?.version !== 2) throw new Error('备份版本无效');
   validateSnapshot(data);
+  if (data.deferredDrafts !== undefined) validateDrafts(data.deferredDrafts, id => cardPattern.test(id));
   if (data.senseLevels !== undefined && (!object(data.senseLevels)
     || !Object.entries(data.senseLevels).every(([key, level]) => sensePattern.test(key) && senseLevels.includes(level)))) {
     throw new Error('义项记录无效');
@@ -74,9 +80,35 @@ export function pending(data, words, now) {
   return { ...tasks, new: tasks.new.slice(0, capacity), extra: day(now) < reviewStart ? tasks.extra : [] };
 }
 
+export function reviewSession(data, words, now) {
+  const previous = data.session;
+  if (day(now) < reviewStart || !previous?.ids.some(id => !Object.hasOwn(data.progress.cards, id))) return data;
+  const ids = pending(data, words, now).due.map(cardId).filter(id => !previous.done.includes(id));
+  const drafts = {};
+  const deferredDrafts = { ...data.deferredDrafts };
+  for (const [id, answer] of Object.entries(previous.drafts)) {
+    if (ids.includes(id)) drafts[id] = answer;
+    else if (!previous.done.includes(id)) deferredDrafts[id] = answer;
+  }
+  const cursor = Math.max(0, ids.indexOf(previous.ids[previous.cursor]));
+  const session = ids.length ? { ids, cursor, drafts, done: [] } : null;
+  return Object.keys(deferredDrafts).length ? { ...data, session, deferredDrafts } : { ...data, session };
+}
+
 export function startSession(data, words, now) {
-  if (current(data, words)) return data;
+  const reviewed = reviewSession(data, words, now);
+  if (reviewed !== data) return reviewed;
+  const item = current(data, words);
   const tasks = pending(data, words, now);
+  if (item) {
+    if (Object.hasOwn(data.progress.cards, item.id)) return data;
+    const due = tasks.due.map(cardId).filter(id => !data.session.done.includes(id));
+    if (!due.length) return data;
+    const ids = data.session.ids.filter(id => !due.includes(id));
+    const cursor = ids.indexOf(item.id);
+    ids.splice(cursor, 0, ...due);
+    return { ...data, session: { ...data.session, ids, cursor } };
+  }
   const ids = [...tasks.due, ...tasks.extra, ...tasks.new].map(cardId);
   return { ...data, session: ids.length ? { ids, cursor: 0, drafts: {}, done: [] } : null };
 }
@@ -107,6 +139,8 @@ export function setSenseLevel(data, item, senseId, level) {
 
 export function rate(data, words, rating, now) {
   const item = current(data, words);
+  data = reviewSession(data, words, now);
+  if (item?.id !== current(data, words)?.id) return data;
   const session = data.session;
   if (!item || session.done.includes(item.id)) return data;
   const answer = session.drafts[item.id]?.correct;

@@ -1,4 +1,4 @@
-import { createData, readBackup } from './session.mjs?v=6';
+import { createData, readBackup } from './session.mjs?v=7';
 
 const database = 'cet6-vocabulary';
 const previewDatabase = 'cet6-vocabulary-preview-g1-v5-20261105';
@@ -9,7 +9,9 @@ export const legacyKey = 'cet6-core-progress-v1';
 export class StaleProgress extends Error {}
 
 export function learningStoreForRelease(release) {
-  return release === 'production' ? database : previewDatabase;
+  if (release === 'production') return database;
+  if (release === 'g2-preview') return 'cet6-vocabulary-preview-g2-20261105';
+  return previewDatabase;
 }
 
 export async function openStore(release = globalThis.document?.documentElement.dataset.release) {

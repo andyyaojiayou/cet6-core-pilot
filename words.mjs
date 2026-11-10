@@ -1,3 +1,14 @@
+import { g2BatchOne } from './words-g2-01.mjs';
+import { g2BatchTwo } from './words-g2-02.mjs';
+import { g2BatchThree } from './words-g2-03.mjs';
+import { g2BatchFour } from './words-g2-04.mjs';
+import { g2BatchFive } from './words-g2-05.mjs';
+import { g2BatchSix } from './words-g2-06.mjs';
+import { g2BatchSeven } from './words-g2-07.mjs';
+import { g2BatchEight } from './words-g2-08.mjs';
+import { g2BatchNine } from './words-g2-09.mjs';
+import { g2BatchTen } from './words-g2-10.mjs';
+
 const nju = 'https://eol.nju.edu.cn/cet6/papers/202606-1.html';
 const nju3 = 'https://eol.nju.edu.cn/cet6/papers/202606-3.html';
 const lazy = 'https://english-exam.lazynote.cn/cet6';
@@ -20,7 +31,7 @@ const disruptStatusQuo = {
   url: `${lazy}/paper/2025-12-1/part3-section-c-2/`,
 };
 
-export const words = [
+const g1Words = [
   {
     id: 'undergo', skills: ['listening'], theme: '职场与变化', ipa: '/ˌʌndəˈɡəʊ/', ipaUS: '/ˌʌndɚˈɡoʊ/',
     past: 'underwent', participle: 'undergone',
@@ -403,4 +414,9 @@ export const words = [
     cue: '为……作贡献，或成为某个结果的成因，以 c 开头', phraseCue: '为可持续发展作贡献', accept: ['contribute to sustainable development'], source: reference('contribute'),
     evidence: [transcript('2026-06-1', '2026 年 6 月第 1 套 · 短文 2', 'p-12-3', 'contribute')],
   },
+];
+
+export const words = [
+  ...g1Words, ...g2BatchOne, ...g2BatchTwo, ...g2BatchThree, ...g2BatchFour,
+  ...g2BatchFive, ...g2BatchSix, ...g2BatchSeven, ...g2BatchEight, ...g2BatchNine, ...g2BatchTen,
 ];
