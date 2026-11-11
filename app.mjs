@@ -172,6 +172,21 @@ function refreshPhase() {
   });
 }
 
+function refreshFromHistory(event) {
+  if (!event.persisted || !ready || !store) {
+    refreshPhase();
+    return;
+  }
+  writes = writes.then(async () => {
+    const record = await store.load();
+    if (record.revision !== revision) {
+      load(record);
+      render();
+    }
+  }).catch(() => message('未能读取最新学习进度，请重新打开页面。'));
+  void writes.then(refreshPhase);
+}
+
 function updateCard(item, change, slot, after) {
   save(previous => current(previous, words, slot)?.id === item.id ? draft(previous, change, slot) : previous, after);
 }
@@ -838,7 +853,7 @@ document.addEventListener('visibilitychange', () => {
   else refreshPhase();
 });
 window.addEventListener('pagehide', stopAudio);
-window.addEventListener('pageshow', refreshPhase);
+window.addEventListener('pageshow', refreshFromHistory);
 setInterval(refreshPhase, 30000);
 
 const release = document.documentElement.dataset.release;
