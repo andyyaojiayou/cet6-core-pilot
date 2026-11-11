@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#f6f2ec">
   <title>词间 · 六级词汇</title>
-  <link rel="stylesheet" href="./style.css?v=6">
+  <link rel="stylesheet" href="./style.css?v=7">
 </head>
 <body>
   <main>
@@ -23,9 +23,8 @@
       <p class="hero-guide">先复习到期词，再学新词。</p>
     </section>
     <section class="metrics" aria-label="今日进度">
-      <div><strong id="due">—</strong><span>到期训练卡</span></div>
+      <a href="#review"><strong id="due">—</strong><span>到期复习 ›</span></a>
       <div><strong id="fresh">—</strong><span>今日新学词</span></div>
-      <div><strong id="remaining">—</strong><span>未完成任务</span></div>
     </section>
     <section class="panel" id="study" aria-label="词汇训练">
       <h2>开始今日练习</h2>
@@ -33,22 +32,50 @@
       <button class="primary" id="start" type="button" disabled>读取进度中</button>
     </section>
     </section>
+    <section id="review-page" hidden aria-labelledby="review-title">
+      <section class="panel" id="review-summary">
+        <h1 id="review-title">复习</h1>
+        <p id="review-due" class="lead" aria-live="polite">读取进度中</p>
+        <div class="row">
+          <button type="button" class="primary" id="start-review" disabled>复习到期卡</button>
+          <button type="button" id="review-undo" hidden>撤销上次评分</button>
+        </div>
+        <details class="review-help">
+          <summary>什么时候复习？</summary>
+          <p>先回忆，再评分。每次评分后，FSRS 会按这张卡的记录和难度计算下次到期时间。第一次评「记住」通常是 10 分钟后，之后可能隔几天。评分按钮会显示本次预计间隔。</p>
+          <p>打开网页后，到期的卡自动列在这里。每天先做这里，再学新词。网页关闭后，由 iPhone「提醒事项」提醒你打开。</p>
+        </details>
+      </section>
+      <section class="panel" id="review-study" aria-label="到期词训练" hidden></section>
+      <section class="panel" id="word-browser">
+        <h2>快速过词</h2>
+        <p class="muted">先看词头回忆，点开核对释义并标记熟悉度。</p>
+        <div class="row word-filters" aria-label="词表筛选">
+          <button type="button" data-filter="learned" aria-pressed="true">已学</button>
+          <button type="button" data-filter="weak" aria-pressed="false">待巩固</button>
+          <button type="button" data-filter="all" aria-pressed="false">全部</button>
+        </div>
+        <label class="field"><span class="sr-only">搜索英文词头</span>
+          <input id="word-query" type="search" placeholder="搜索英文词头" autocomplete="off" autocapitalize="none" spellcheck="false">
+        </label>
+        <ul id="word-list"></ul>
+        <p class="muted" id="word-list-empty" hidden></p>
+        <button type="button" id="more-words" hidden>显示更多</button>
+      </section>
+      <section class="panel" id="review-word" hidden></section>
+    </section>
     <section id="plan-page" hidden aria-labelledby="plan-title">
       <section class="panel" id="plan-summary">
-        <p class="eyebrow">截至 2026 年 11 月 30 日</p>
         <h1 id="plan-title">学习计划</h1>
-        <div id="goal-stats"></div>
         <div id="sprint-stats"></div>
       </section>
-      <section class="panel"><h2>阶段进度</h2><div id="stages" class="stack"></div></section>
-      <section class="panel"><h2>听、读、写</h2><ul id="skills"></ul></section>
-      <section class="panel"><h2>复测表现</h2><div id="recall-results"></div></section>
-      <section class="panel"><h2>最近 7 天</h2><ul id="week"></ul></section>
-    <details class="panel">
-      <summary>逐词进度</summary>
-      <p class="muted">已学习指完成首次主动回忆。已掌握需要跨日到期复测通过。答错或处于重学阶段时列入待巩固。</p>
-      <ul id="progress"></ul>
-    </details>
+      <details class="panel">
+        <summary>学习记录与复测</summary>
+        <div id="goal-stats"></div>
+        <h2>听、读、写</h2><ul id="skills"></ul>
+        <h2>复测表现</h2><div id="recall-results"></div>
+        <h2>最近 7 天</h2><ul id="week"></ul>
+      </details>
     </section>
     <section id="settings-page" hidden aria-labelledby="settings-title">
       <section class="panel">
@@ -87,8 +114,8 @@
     <footer>练习句标注来源 · 双口音合成音频 · FSRS 复习</footer>
   </main>
   <nav class="tabs" aria-label="主导航">
-    <a href="#learn">学习</a><a href="#plan">计划</a><a href="#settings">设置</a>
+    <a href="#learn">学习</a><a href="#review">复习</a><a href="#plan">计划</a><a href="#settings">设置</a>
   </nav>
-  <script type="module" src="./app.mjs?v=13"></script>
+  <script type="module" src="./app.mjs?v=14"></script>
 </body>
 </html>

@@ -1,4 +1,4 @@
-import { dailyNew, day, empty, grade, parseBackup, queue, status } from './learning.mjs?v=2';
+import { dailyNew, day, empty, grade, parseBackup, queue, status } from './learning.mjs?v=3';
 
 const sprintStart = '2026-11-10';
 const sprintTarget = 650;
@@ -50,6 +50,12 @@ function validateResults(results) {
 function validateSnapshot(data) {
   parseBackup(JSON.stringify(data.progress));
   validateSession(data.session);
+  if (data.review !== undefined) {
+    validateSession(data.review);
+    if (data.review?.check || data.review?.ids.some(id => !Object.hasOwn(data.progress.cards, id))) {
+      throw new Error('复习断点无效');
+    }
+  }
   if (data.suspendedCheck !== undefined) {
     if (data.suspendedCheck?.check !== true) throw new Error('抽测断点无效');
     validateSession(data.suspendedCheck);
@@ -73,6 +79,9 @@ export function readBackup(raw) {
   if (data.undo !== null) {
     if (!object(data.undo)) throw new Error('撤销记录无效');
     validateSnapshot(data.undo);
+    if (data.undo.reviewRating !== undefined && (data.undo.reviewRating !== true || !data.undo.review)) {
+      throw new Error('复习撤销记录无效');
+    }
     if (data.undo.deferredDrafts !== undefined) validateDrafts(data.undo.deferredDrafts, id => cardPattern.test(id));
   }
   const p = data.prefs;
@@ -124,6 +133,10 @@ function mergeSnapshot(local, imported) {
     session = pending.length ? { ...original, ids, cursor, drafts } : null;
   }
   const merged = { progress: { version: 1, cards, firstSeen }, reviews, session, deferredDrafts };
+  const reviewOwner = local.review ? local : imported;
+  if (local.review !== undefined || imported.review !== undefined) {
+    merged.review = filterSession(reviewOwner.review, id => cards[id]?.lastAt === reviewOwner.progress.cards[id]?.lastAt) ?? null;
+  }
   const parked = local.suspendedCheck ?? (!session?.check && (imported.suspendedCheck ?? (imported.session?.check ? imported.session : null)));
   if (parked) merged.suspendedCheck = parked;
   for (const field of ['retention', 'checks']) {
@@ -140,6 +153,7 @@ function mergeSnapshot(local, imported) {
 export function mergeBackup(local, imported) {
   const merged = mergeSnapshot(local, imported);
   const mergedUndo = local.undo ? mergeSnapshot(local.undo, imported) : null;
+  if (local.undo?.reviewRating && mergedUndo?.review) mergedUndo.reviewRating = true;
   const untouched = !local.session && !Object.keys(local.progress.cards).length;
   return {
     ...local, ...merged,
@@ -165,8 +179,9 @@ function resumeDrafts(data, ids) {
   return { drafts, deferredDrafts };
 }
 
-export function current(data, words) {
-  const id = data.session?.ids[data.session.cursor];
+export function current(data, words, slot = 'session') {
+  const session = data[slot];
+  const id = session?.ids[session.cursor];
   if (!id) return null;
   const [wordId, skill] = id.split(':');
   const word = words.find(entry => entry.id === wordId);
@@ -243,19 +258,35 @@ export function reviewSession(data, words, now) {
 export function startSession(data, words, now) {
   const reviewed = reviewSession(data, words, now);
   if (reviewed !== data) return reviewed;
-  const item = current(data, words);
   const tasks = pending(data, words, now);
-  if (item) {
-    if (Object.hasOwn(data.progress.cards, item.id)) return data;
-    const due = tasks.due.map(cardId).filter(id => !data.session.done.includes(id));
-    if (!due.length) return data;
-    const ids = data.session.ids.filter(id => !due.includes(id));
-    const cursor = ids.indexOf(item.id);
-    ids.splice(cursor, 0, ...due);
-    return { ...data, session: { ...data.session, ids, cursor } };
-  }
+  if (current(data, words)) return data;
   const ids = [...tasks.due, ...tasks.extra, ...tasks.new].map(cardId);
   return openSession(data.session ? { ...data, deferredDrafts: unfinishedDrafts(data) } : data, ids);
+}
+
+function filterSession(session, keep) {
+  if (!session) return session;
+  const ids = session.ids.filter(keep);
+  if (ids.length === session.ids.length) return session;
+  const done = session.done.filter(id => ids.includes(id));
+  if (!ids.some(id => !done.includes(id))) return null;
+  const selected = session.ids[session.cursor];
+  const nearest = [...session.ids.slice(session.cursor), ...session.ids.slice(0, session.cursor)]
+    .find(id => ids.includes(id) && !done.includes(id));
+  const cursor = ids.indexOf(ids.includes(selected) ? selected : nearest);
+  const drafts = Object.fromEntries(Object.entries(session.drafts).filter(([id]) => ids.includes(id)));
+  return { ...session, ids, done, cursor, drafts };
+}
+
+export function startDueReview(data, words, now) {
+  const ids = queue(data.progress, words, now).due.map(cardId);
+  const previous = data.review;
+  const session = filterSession(previous, id => previous.done.includes(id) || ids.includes(id));
+  if (session && current({ review: session }, words, 'review')) {
+    return session === previous ? data : { ...data, review: session };
+  }
+  if (!ids.length && !previous) return data;
+  return { ...data, review: ids.length ? { ids, cursor: 0, drafts: {}, done: [] } : null };
 }
 
 function openSession(data, ids) {
@@ -264,23 +295,31 @@ function openSession(data, ids) {
   return { ...data, deferredDrafts, session: { ids, cursor: 0, drafts, done: [] } };
 }
 
-export function move(data, offset) {
-  if (!data.session) return data;
-  const cursor = Math.max(0, Math.min(data.session.ids.length - 1, data.session.cursor + offset));
-  return { ...data, session: { ...data.session, cursor } };
+export function move(data, offset, slot = 'session') {
+  const session = data[slot];
+  if (!session) return data;
+  const cursor = Math.max(0, Math.min(session.ids.length - 1, session.cursor + offset));
+  return { ...data, [slot]: { ...session, cursor } };
 }
 
-export function draft(data, change) {
-  const session = data.session;
+export function draft(data, change, slot = 'session') {
+  const session = data[slot];
   const id = session?.ids[session.cursor];
   if (!id || session.done.includes(id)) return data;
-  return { ...data, session: { ...session, drafts: { ...session.drafts, [id]: { ...session.drafts[id], ...change } } } };
+  return { ...data, [slot]: { ...session, drafts: { ...session.drafts, [id]: { ...session.drafts[id], ...change } } } };
 }
 
 export function setSenseLevel(data, item, senseId, level) {
-  if (!item || (senseId !== 'main' && !item.word.senses?.some(sense => sense.id === senseId))
-    || (level !== '' && !senseLevels.includes(level))) return data;
-  const key = `${item.word.id}:${senseId}`;
+  if (!item || (senseId !== 'main' && !item.word.senses?.some(sense => sense.id === senseId))) return data;
+  return markLevel(data, item.word.id + ':' + senseId, level);
+}
+
+export function setWordLevel(data, word, level) {
+  return markLevel(data, word.id + ':overall', level);
+}
+
+function markLevel(data, key, level) {
+  if (level !== '' && !senseLevels.includes(level)) return data;
   if ((data.senseLevels?.[key] ?? '') === level) return data;
   const next = { ...data.senseLevels };
   if (level) next[key] = level;
@@ -343,15 +382,16 @@ export function recordCheck(data, words, now) {
   return { ...data, checks: noteResult(data.checks, date, item.id, answer), session: advanceSession(session, item.id) };
 }
 
-export function rate(data, words, rating, now) {
-  const item = current(data, words);
+export function rate(data, words, rating, now, slot = 'session') {
+  const item = current(data, words, slot);
   data = reviewSession(data, words, now);
-  if (item?.id !== current(data, words)?.id) return data;
-  const session = data.session;
+  if (item?.id !== current(data, words, slot)?.id) return data;
+  const session = data[slot];
   if (!item || session.check || session.done.includes(item.id)) return data;
   const answer = session.drafts[item.id]?.correct;
   if (typeof answer !== 'boolean' || (!answer && rating !== 1)) return data;
   const previous = data.progress.cards[item.id];
+  if (slot === 'review' && (!previous || Date.parse(previous.fsrs.due) > now.getTime())) return data;
   const wasLearned = Object.hasOwn(data.progress.firstSeen, item.word.id);
   const today = day(now);
   if (!previous) {
@@ -365,9 +405,19 @@ export function rate(data, words, rating, now) {
     ...data,
     progress: grade(data.progress, item, rating, now),
     reviews: previous ? { ...data.reviews, [today]: (data.reviews[today] ?? 0) + 1 } : data.reviews,
-    session: advanceSession(session, item.id),
-    undo: { progress: data.progress, reviews: data.reviews, session },
+    [slot]: advanceSession(session, item.id),
+    undo: { progress: data.progress, reviews: data.reviews, session: data.session },
   };
+  if (slot === 'review') {
+    next.undo.review = data.review;
+    next.undo.reviewRating = true;
+    if (!data.session?.check) {
+      next.session = filterSession(data.session, id => id !== item.id || data.session.done.includes(id));
+    }
+  } else if (data.review?.ids.includes(item.id) && !data.review.done.includes(item.id)) {
+    next.undo.review = data.review;
+    next.review = filterSession(data.review, id => id !== item.id);
+  }
   if (previous && day(new Date(previous.lastAt)) < today && new Date(previous.fsrs.due) <= now) {
     next.retention = noteResult(data.retention, today, item.id, answer);
     next.undo.retention = data.retention ?? {};
@@ -378,7 +428,12 @@ export function rate(data, words, rating, now) {
 export function undo(data) {
   if (!data.undo) return data;
   const { progress, reviews, session } = data.undo;
-  const restored = { ...data, progress, reviews, session, undo: null };
+  const restored = { ...data, progress, reviews, session: data.undo.reviewRating ? data.session : session, undo: null };
+  if (data.undo.reviewRating && session !== null && !data.session?.check) {
+    const id = data.undo.review?.ids[data.undo.review.cursor];
+    if (session.ids.includes(id) && !session.done.includes(id) && !data.session?.ids.includes(id)) restored.session = session;
+  }
+  if (data.undo.review !== undefined) restored.review = data.undo.review;
   if (data.undo.retention !== undefined) restored.retention = data.undo.retention;
   if (data.undo.deferredDrafts !== undefined) restored.deferredDrafts = data.undo.deferredDrafts;
   return restored;

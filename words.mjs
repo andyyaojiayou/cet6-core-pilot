@@ -15,6 +15,7 @@ import { g4BatchOne } from './words-g4-01.mjs';
 import { g4BatchTwo } from './words-g4-02.mjs';
 import { g4BatchThree } from './words-g4-03.mjs';
 import { g4BatchFour } from './words-g4-04.mjs';
+import { supplementalSenses } from './words-supplement.mjs';
 
 const nju = 'https://eol.nju.edu.cn/cet6/papers/202606-1.html';
 const nju3 = 'https://eol.nju.edu.cn/cet6/papers/202606-3.html';
@@ -44,8 +45,8 @@ const g1Words = [
     past: 'underwent', participle: 'undergone',
     pos: 'v.', meaning: '经历、接受（变化、治疗等）', collocation: 'undergo a major change',
     sentence: 'The company will undergo a major change this year.', translation: '公司今年将经历一次重大变革。',
-    hint: '常接 change、training 或 surgery。过去式是 underwent。',
-    context: '句子的主语是公司，后面接 a major change。undergo 表示公司会经历变革，句子没有交代由谁推动。',
+    hint: 'undergo major changes 经历重大变化，undergo surgery 接受手术，undergo training 接受培训。',
+    context: '主语是经历变化或接受处理的一方。原句说公司会经历变革。换成 The patient underwent surgery last week.，就表示「病人上周接受了手术」。',
     related: [
       { kind: '近义', term: 'go through', ipa: '/ɡəʊ θruː/', ipaUS: '/ɡoʊ θruː/', meaning: '经历',
         comparison: 'go through a major change 可以替换原句的 undergo a major change，语气更日常。正式写作和医疗语境常用 undergo surgery。',
@@ -443,4 +444,6 @@ export const words = [
   ...g3BatchOne, ...g3BatchTwo, ...g3BatchThree,
   ...interleaveSkills(g4Words.filter(word => word.tier === 'A')),
   ...interleaveSkills(g4Words.filter(word => word.tier === 'B')),
-];
+].map(word => supplementalSenses[word.id]
+  ? { ...word, senses: [...(word.senses ?? []), ...supplementalSenses[word.id]] }
+  : word);

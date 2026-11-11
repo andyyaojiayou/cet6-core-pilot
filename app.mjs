@@ -1,19 +1,22 @@
-import { words } from './words.mjs?v=12';
-import { dailyNew, day, status, writingCorrect } from './learning.mjs?v=2';
+import { words } from './words.mjs?v=13';
+import { dailyNew, day, nextReview, ratingDue, status, writingCorrect } from './learning.mjs?v=3';
 import { dailyQuote } from './daily-quote.mjs';
 import { beginCheck, checkAvailable, createData, current, draft, mergeBackup, modes, move, pending, plan, rate, readBackup, recordCheck,
-  reviewSession, sprintBase, reviewStart, setSenseLevel, startSession, targetDate, undo } from './session.mjs?v=9';
-import { openStore, StaleProgress } from './storage.mjs?v=10';
+  reviewSession, sprintBase, setSenseLevel, setWordLevel, startDueReview, startSession, undo } from './session.mjs?v=10';
+import { openStore, StaleProgress } from './storage.mjs?v=11';
 
 const $ = id => document.getElementById(id);
 const names = { listening: '听力', reading: '阅读', writing: '写作' };
-const study = $('study');
-const pages = ['learn', 'plan', 'settings'];
+const pages = ['learn', 'review', 'plan', 'settings'];
 const audio = new Audio();
 audio.preload = 'none';
 let playback = 0, playingButton;
-let data = createData(), revision = null, store, ready = false, active = false;
+let data = createData(), revision = null, store, ready = false, active = false, reviewing = false;
+let selectedWord = '', visibleWords = 50;
 let writes = Promise.resolve();
+const reviewTime = new Intl.DateTimeFormat('zh-CN', {
+  timeZone: 'Asia/Shanghai', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+});
 
 function message(value) {
   $('notice').textContent = value;
@@ -68,6 +71,7 @@ function save(change, after, recovery = false) {
       if (error instanceof StaleProgress) {
         load(await store.load());
         active = false;
+        reviewing = false;
         render();
         message('另一标签页已更新进度。已读取最新记录，请继续。');
       } else message('本次操作未确认保存，请保留当前页面后重试。');
@@ -151,9 +155,10 @@ function refreshToday() {
   const learned = dailyNew(data.progress, now);
   $('due').textContent = tasks.due.length;
   $('fresh').textContent = learned + ' / ' + (learned + tasks.new.length);
-  $('remaining').textContent = data.session
-    ? data.session.ids.length - data.session.done.length
-    : tasks.due.length + tasks.new.length + tasks.extra.length;
+  const upcoming = nextReview(data.progress, words, now);
+  $('review-due').textContent = tasks.due.length ? tasks.due.length + ' 张待复习'
+    : upcoming ? '下次到期 · ' + reviewTime.format(upcoming) : '完成首次评分后安排复习';
+  $('start-review').disabled = !tasks.due.length;
 }
 
 function refreshPhase() {
@@ -167,16 +172,24 @@ function refreshPhase() {
   });
 }
 
-function updateCard(item, change, after) {
-  save(previous => current(previous, words)?.id === item.id ? draft(previous, change) : previous, after);
+function updateCard(item, change, slot, after) {
+  save(previous => current(previous, words, slot)?.id === item.id ? draft(previous, change, slot) : previous, after);
 }
 
-function renderStudy() {
-  $('hero').hidden = active && !!current(data, words);
+function renderStudy(slot = 'session') {
+  const isReview = slot === 'review';
+  const study = $(isReview ? 'review-study' : 'study');
+  if (!isReview) $('hero').hidden = active && !!current(data, words);
   if (!ready) return;
-  const item = current(data, words);
-  if (!active || !item) {
+  const item = current(data, words, slot);
+  if (!isReview && (!active || !item)) {
     active = false;
+    const tasks = pending(data, words, new Date());
+    const due = button('复习到期卡' + (tasks.due.length ? ' · ' + tasks.due.length : ''), () => {
+      location.hash = 'review';
+      beginReview();
+    }, item ? '' : 'primary');
+    due.id = 'start-due';
     const start = button(item ? (data.session?.check ? '继续阶段抽测' : '继续上次学习') : '开始学习', () => {
       save(previous => startSession(previous, words, new Date()), () => {
         active = Boolean(current(data, words));
@@ -184,12 +197,14 @@ function renderStudy() {
       });
     }, 'primary');
     start.id = 'start';
-    const tasks = pending(data, words, new Date());
     const empty = !item && tasks.due.length + tasks.new.length + tasks.extra.length === 0;
-    const detail = item ? '会回到上次的词卡，保留未提交答案。'
+    const detail = item ? '回到上次的词卡，保留未提交答案。'
       : empty ? '现在没有待做任务，可稍后检查到期词。'
       : '先复习到期卡，再做主动回忆。';
-    study.replaceChildren(element('h2', item ? '从上次停下的地方继续' : '今日练习'), element('p', detail), start);
+    const primaryActions = element('div', '', 'row');
+    if (item || !tasks.due.length) primaryActions.append(start);
+    if (tasks.due.length) primaryActions.append(due);
+    study.replaceChildren(element('h2', item ? '从上次停下的地方继续' : '今日练习'), element('p', detail), primaryActions);
     const actions = element('div', '', 'row');
     if (checkAvailable(data, words, new Date())) actions.append(button(data.suspendedCheck ? '继续阶段抽测' : '开始阶段抽测', () => {
       save(previous => beginCheck(previous, words, new Date()), () => {
@@ -197,7 +212,7 @@ function renderStudy() {
         render();
       });
     }));
-    if (data.undo && !data.session?.check) actions.append(button('撤销上次评分', undoLast));
+    if (data.undo && !data.undo.reviewRating && !data.session?.check) actions.append(button('撤销上次评分', undoLast));
     if (item) actions.append(button('结束当前任务', () => {
       if (!confirm('结束当前任务？未提交的答案草稿会清空，已保存的学习与复习记录会保留。')) return;
       save(previous => ({ ...previous, session: null }), render);
@@ -205,9 +220,10 @@ function renderStudy() {
     if (actions.childElementCount) study.append(actions);
     return;
   }
+  if (!item) return;
 
   const { word, skill } = item;
-  const session = data.session;
+  const session = data[slot];
   const answered = session.drafts[item.id] ?? {};
   const scored = session.done.includes(item.id);
   const answeredCard = typeof answered.correct === 'boolean';
@@ -215,22 +231,27 @@ function renderStudy() {
   header.append(element('span', names[skill], 'badge'), element('span', word.theme, 'badge'),
     element('span', '第 ' + (session.cursor + 1) + ' / ' + session.ids.length + ' 张', 'muted'));
   const titles = { listening: '听句子，辨认词义', reading: '看语境，选出词义', writing: '看中文，拼写并写出搭配' };
-  const title = element('h2', (session.check ? '抽测 · ' : '') + titles[skill]);
+  const title = element('h2', (session.check ? '抽测 · ' : isReview ? '到期复习 · ' : '') + titles[skill]);
   const body = element('div', '', 'stack');
   const nav = element('div', '', 'row card-nav');
-  const previous = button('上一张', () => navigate(-1));
-  const next = button('下一张', () => navigate(1));
+  const previous = button('上一张', () => navigate(-1, slot));
+  const next = button('下一张', () => navigate(1, slot));
   previous.disabled = session.cursor === 0;
   next.disabled = session.cursor === session.ids.length - 1;
-  nav.append(previous, next, button('返回首页', () => { stopAudio(); active = false; render(); }));
-  if (data.undo && !session.check) nav.append(button('撤销上次评分', undoLast));
+  nav.append(previous, next, button(isReview ? '返回复习' : '返回首页', () => {
+    stopAudio();
+    if (isReview) reviewing = false;
+    else active = false;
+    render();
+  }));
+  if (data.undo && !session.check && Boolean(data.undo.reviewRating) === isReview) nav.append(button('撤销上次评分', undoLast));
   study.replaceChildren(header, title, body, nav);
 
   if (answeredCard || scored) {
-    showFeedback(item, answered, scored, body);
+    showFeedback(item, answered, scored, body, slot);
     return;
   }
-  const answer = (correct, revealed = false) => updateCard(item, { correct, revealed }, () => {
+  const answer = (correct, revealed = false) => updateCard(item, { correct, revealed }, slot, () => {
     render();
     study.querySelector('.verdict')?.focus();
   });
@@ -242,7 +263,7 @@ function renderStudy() {
       label.append(element('span', cue));
       const input = element('input');
       input.type = 'text';
-      input.id = id;
+      input.id = isReview ? 'review-' + id : id;
       input.lang = 'en';
       input.required = true;
       input.maxLength = 180;
@@ -251,7 +272,7 @@ function renderStudy() {
       input.setAttribute('autocorrect', 'off');
       input.spellcheck = false;
       input.value = answered[id] ?? '';
-      input.addEventListener('input', () => updateCard(item, { [id]: input.value }));
+      input.addEventListener('input', () => updateCard(item, { [id]: input.value }, slot));
       label.append(input);
       form.append(label);
       return input;
@@ -269,7 +290,7 @@ function renderStudy() {
     if (skill === 'listening') {
       options.hidden = !answered.played;
       body.append(mainAudio(word, 'sentence', { className: 'primary', onPlay: () => {
-        if (options.hidden) updateCard(item, { played: true }, () => { options.hidden = false; });
+        if (options.hidden) updateCard(item, { played: true }, slot, () => { options.hidden = false; });
       } }));
     } else {
       body.append(exampleSentence(word));
@@ -283,15 +304,16 @@ function renderStudy() {
   body.append(button('想不起来', () => answer(false, true)));
 }
 
-function navigate(offset) {
+function navigate(offset, slot) {
   stopAudio();
-  save(previous => move(previous, offset), render);
+  save(previous => move(previous, offset, slot), () => { render(); window.scrollTo(0, 0); });
 }
 
 function undoLast() {
   stopAudio();
   save(previous => reviewSession(undo(previous), words, new Date()), () => {
     active = Boolean(current(data, words));
+    reviewing = location.hash === '#review' && Boolean(current(data, words, 'review'));
     render();
     message('已撤销上次评分，复习时间和进度已恢复。');
   });
@@ -315,7 +337,7 @@ function exampleSource(entry) {
     : element('span', '原创教学例句', 'example-origin');
 }
 
-function senseLevel(item, id, meaning) {
+function senseLevel(item, id, meaning, slot) {
   const control = element('select', '', 'sense-level');
   control.setAttribute('aria-label', meaning + '的掌握度');
   for (const [value, text] of [['', '掌握度'], ['weak', '薄弱'], ['learning', '练习中'], ['strong', '熟悉']]) {
@@ -329,7 +351,7 @@ function senseLevel(item, id, meaning) {
   control.addEventListener('change', () => {
     const level = control.value;
     control.value = getLevel();
-    save(previous => current(previous, words)?.id === item.id
+    save(previous => !slot || current(previous, words, slot)?.id === item.id
       ? setSenseLevel(previous, item, id, level) : previous, () => { control.value = getLevel(); });
   });
   return control;
@@ -349,13 +371,13 @@ function usageEvidence(container, sources) {
   }
 }
 
-function wordSenses(item) {
+function wordSenses(item, slot, showHeading = true) {
   const { word } = item;
   const section = element('section', '', 'word-core stack');
   const caption = element('p', '重点词与义项', 'eyebrow');
   const heading = element('h3', word.id, 'word-head');
   heading.lang = 'en';
-  section.append(caption, heading);
+  if (showHeading) section.append(caption, heading);
   const primary = { ...word, id: 'main' };
   const firstVerb = [primary, ...(word.senses ?? [])].find(sense => sense.pos.startsWith('v.'));
   for (const sense of [primary, ...(word.senses ?? [])]) {
@@ -365,7 +387,7 @@ function wordSenses(item) {
     const title = element('h4', sense.meaning);
     title.prepend(element('span', sense.pos, 'badge part-of-speech'));
     const header = element('div', '', 'sense-heading');
-    header.append(title, senseLevel(item, sense.id, sense.meaning));
+    header.append(title, senseLevel(item, sense.id, sense.meaning, slot));
     block.append(header);
     const evidence = sense.evidence ?? (isMain && word.source?.kind !== 'reference' && word.source ? [word.source] : []);
     const statusLabel = evidence.length ? sense.evidenceLabel ?? '真题有据' : '教学补充';
@@ -448,7 +470,7 @@ function semanticFeedback(word) {
   return section;
 }
 
-function showFeedback(item, { correct, revealed }, scored, body) {
+function showFeedback(item, { correct, revealed }, scored, body, slot) {
   const { word } = item;
   const box = element('div', '', 'feedback stack');
   const outcome = correct ? '答对了' : revealed ? '已揭晓' : revealed === false ? '答错了' : '待巩固';
@@ -457,7 +479,8 @@ function showFeedback(item, { correct, revealed }, scored, body) {
   const icon = element('span', correct ? '✓' : revealed ? '↪' : '!', 'verdict-icon');
   icon.setAttribute('aria-hidden', 'true');
   const result = element('div');
-  const checking = data.session?.check;
+  const checking = data[slot]?.check;
+  const isReview = slot === 'review';
   result.append(element('strong', outcome), element('p', checking ? (scored ? '抽测已记录' : '本题计入阶段抽测。')
     : scored ? '已评分 · 可回看'
     : correct ? '请按实际回忆难度评分。' : '看完解析后可记录为忘记。'));
@@ -475,8 +498,20 @@ function showFeedback(item, { correct, revealed }, scored, body) {
   usage.append(element('h3', '语境与搭配'), collocation, exampleSentence(word),
     element('p', word.translation, 'muted'), audioRow, exampleSource(word),
     element('h4', '为什么是这个义项'), element('p', word.context), details);
-  box.append(verdict, wordSenses(item), usage);
-  if (word.related?.length) box.append(semanticFeedback(word));
+  box.append(verdict);
+  const explanations = [wordSenses(item, slot, !isReview), usage];
+  if (word.related?.length) explanations.push(semanticFeedback(word));
+  if (isReview) {
+    const brief = element('section', '', 'stack');
+    const title = element('h3', word.id, 'word-head');
+    title.lang = 'en';
+    const meaning = element('p', word.meaning);
+    meaning.prepend(element('span', word.pos, 'badge part-of-speech'));
+    brief.append(title, meaning, mainAudio(word, 'word'));
+    box.append(brief);
+  } else {
+    box.append(...explanations);
+  }
   if (!scored && checking) {
     box.append(button('记录抽测答案', () => {
       stopAudio();
@@ -486,27 +521,40 @@ function showFeedback(item, { correct, revealed }, scored, body) {
     const grades = [[1, '忘记'], [2, '困难'], [3, '记住'], [4, '熟练']];
     const score = element('section', '', 'score stack');
     const ratings = element('div', '', 'ratings');
+    const now = new Date();
     for (const [rating, label] of grades) {
       const control = button(label, () => {
         stopAudio();
         let saved = false;
         save(previous => {
-          if (current(previous, words)?.id !== item.id) return previous;
-          const next = rate(previous, words, rating, new Date());
+          if (current(previous, words, slot)?.id !== item.id) return previous;
+          const next = rate(previous, words, rating, new Date(), slot);
           saved = next !== previous;
           return next;
         }, () => {
           if (saved) {
-            message('');
+            const due = new Date(data.progress.cards[item.id].fsrs.due);
+            message(item.word.id + ' · 下次复习 ' + reviewTime.format(due));
             render();
+            window.scrollTo(0, 0);
           } else message('该卡已评分，或今日新词任务已结束。可返回首页检查到期任务。');
         });
       }, rating === (correct ? 3 : 1) ? 'primary' : '');
       control.disabled = !correct && rating !== 1;
+      if (!control.disabled) {
+        const minutes = Math.round((ratingDue(data.progress, item, rating, now) - now) / 60_000);
+        const interval = minutes < 60 ? minutes + ' 分钟后' : minutes / 1440 + ' 天后';
+        control.append(element('small', interval));
+      }
       ratings.append(control);
     }
-    score.append(element('h3', 'FSRS 记忆评分'), ratings);
+    score.append(element('h3', '按回忆难度评分'), ratings);
     box.append(score);
+  }
+  if (isReview) {
+    const details = element('details', '', 'stack');
+    details.append(element('summary', '完整释义与辨析'), ...explanations);
+    box.append(details);
   }
   body.append(box);
 }
@@ -519,65 +567,145 @@ function bar(value, max, label) {
   return progress;
 }
 
+function beginReview() {
+  save(previous => startDueReview(previous, words, new Date()), () => {
+    selectedWord = '';
+    reviewing = Boolean(current(data, words, 'review'));
+    message('');
+    render();
+    window.scrollTo(0, 0);
+  });
+}
+
+function wordLevel(word) {
+  return data.senseLevels?.[word.id + ':overall'] ?? '';
+}
+
+function weakWord(word) {
+  return ['weak', 'learning'].includes(wordLevel(word)) || status(data.progress, word) === '待巩固'
+    || ['main', ...(word.senses ?? []).map(sense => sense.id)].some(id =>
+      data.senseLevels?.[word.id + ':' + id] === 'weak');
+}
+
+function renderWordList() {
+  const filter = document.querySelector('.word-filters [aria-pressed="true"]').dataset.filter;
+  const query = $('word-query').value.trim().toLowerCase();
+  const entries = words.filter(word => word.id.includes(query) &&
+    (filter === 'all' || (filter === 'weak' ? weakWord(word) : Boolean(data.progress.firstSeen[word.id]))));
+  const labels = { weak: '不认识', learning: '有点生', strong: '熟悉' };
+  $('word-list').replaceChildren(...entries.slice(0, visibleWords).map(word => {
+    const row = element('li');
+    const control = button('', () => {
+      stopAudio();
+      selectedWord = word.id;
+      renderReview();
+      $('review-word-title').focus();
+      window.scrollTo(0, 0);
+    }, 'word-row');
+    const term = element('strong', word.id);
+    term.lang = 'en';
+    const progress = status(data.progress, word);
+    const mark = wordLevel(word);
+    const caption = mark === 'strong' && progress === '待巩固' ? progress : (labels[mark] ?? progress);
+    control.append(term, element('span', caption + ' ›', 'muted'));
+    row.append(control);
+    return row;
+  }));
+  $('word-list-empty').hidden = entries.length > 0;
+  $('word-list-empty').textContent = query ? '没有找到匹配的词。'
+    : filter === 'weak' ? '这里会收集你标记为不熟和回忆失败的词。'
+    : '评分后，学过的词会出现在这里。也可以切换到「全部」。';
+  $('more-words').hidden = visibleWords >= entries.length;
+}
+
+function renderReview() {
+  if (reviewing && !current(data, words, 'review')) reviewing = false;
+  const word = words.find(entry => entry.id === selectedWord);
+  $('review-summary').hidden = reviewing || Boolean(word);
+  $('review-study').hidden = !reviewing;
+  $('word-browser').hidden = reviewing || Boolean(word);
+  $('review-word').hidden = !word || reviewing;
+  $('review-undo').hidden = !data.undo?.reviewRating;
+  $('start-review').textContent = data.review ? '继续到期复习' : '复习到期卡';
+  if (reviewing) {
+    renderStudy('review');
+    return;
+  }
+  if (!word) {
+    renderWordList();
+    return;
+  }
+  const back = button('‹ 返回词表', () => {
+    stopAudio();
+    const previousWord = selectedWord;
+    selectedWord = '';
+    renderReview();
+    const row = [...$('word-list').querySelectorAll('button')].find(control => control.firstChild.textContent === previousWord);
+    (row ?? $('word-query')).focus();
+  });
+  const title = element('h2', word.id, 'word-head');
+  title.id = 'review-word-title';
+  title.lang = 'en';
+  title.tabIndex = -1;
+  const level = element('label', '整词熟悉度', 'field');
+  const select = element('select');
+  for (const [value, text] of [['', '未标记'], ['weak', '不认识'], ['learning', '有点生'], ['strong', '熟悉']]) {
+    const option = element('option', text);
+    option.value = value;
+    select.append(option);
+  }
+  select.value = wordLevel(word);
+  select.addEventListener('change', () => {
+    const value = select.value;
+    select.value = wordLevel(word);
+    save(previous => setWordLevel(previous, word, value), () => { select.value = wordLevel(word); });
+  });
+  level.append(select);
+  const audioRow = element('div', '', 'main-audio');
+  audioRow.append(mainAudio(word, 'word', { className: 'primary' }), mainAudio(word, 'sentence'));
+  const example = element('section', '', 'explanation stack');
+  const source = element('details', '', 'semantic-hint');
+  source.append(element('summary', '语境解释与出处'), element('p', word.context));
+  usageEvidence(source, word.evidence ?? (word.source ? [word.source] : []));
+  example.append(exampleSentence(word), element('p', word.translation, 'muted'), audioRow, exampleSource(word), source);
+  const panel = $('review-word');
+  const due = Math.min(...word.skills.flatMap(skill => {
+    const at = data.progress.cards[word.id + ':' + skill]?.fsrs.due;
+    return at ? [Date.parse(at)] : [];
+  }));
+  const schedule = Number.isFinite(due) ? (due <= Date.now() ? '已到期 · 去做主动回忆'
+    : '下次到期 · ' + reviewTime.format(due)) : '首次主动回忆评分后安排复习';
+  panel.replaceChildren(back, title, element('p', schedule, 'muted'), level,
+    element('p', '标记用于筛选待巩固词。到期时间按主动回忆的评分计算。', 'muted'),
+    wordSenses({ word }, undefined, false), example);
+  if (word.related?.length) {
+    const related = element('details');
+    related.append(element('summary', '关联词辨析'), semanticFeedback(word));
+    panel.append(related);
+  }
+}
+
 function renderPlan() {
   const now = new Date();
-  const today = day(now);
   const stats = plan(data, words, now);
   const target = data.prefs.target;
-  const percentage = Math.min(100, Math.floor(stats.mastered / target * 100));
-  const statusText = stats.forecast === null ? '积累中 · 至少需要 3 个完整学习日'
-    : '按实际节奏预计首轮回忆 ' + stats.forecast + ' 词 · 当前词库 ' + words.length + ' 词';
   $('goal-stats').replaceChildren(
-    element('p', '已掌握 ' + stats.mastered + ' / ' + target + ' 词 · ' + percentage + '%', 'lead'),
-    bar(stats.mastered, target, '总目标进度'),
-    element('p', '已学习 ' + stats.learned + ' · 已掌握 ' + stats.mastered + ' · 待巩固 ' + stats.weak),
-    element('p', '11 月 30 日预测 · ' + statusText, 'muted'));
+    element('p', '已掌握 ' + stats.mastered + ' / ' + target + ' 词 · 待巩固 ' + stats.weak),
+    element('p', '已掌握需跨日到期复测通过。', 'muted'));
   const sprint = stats.sprint;
-  const unopened = Math.max(0, sprint.target - sprint.open);
-  const remainingToday = pending(data, words, now).new.length;
-  const paceText = sprint.remainingDays > 0
-    ? '今天还可学 ' + remainingToday + ' 个新词 · 先完成到期复习 · 剩余 ' + sprint.remainingDays + ' 个新词日'
-    : '进入集中复习 · 按 FSRS 做到期卡';
+  const tasks = pending(data, words, now);
+  const action = element('a', tasks.due.length ? '去复习' : '继续学习', 'button primary plan-actions');
+  action.href = tasks.due.length ? '#review' : '#learn';
   const sprintRows = [
-    element('h2', '首轮冲刺'),
-    element('p', '已完成 ' + sprint.learned + ' / ' + sprint.target + ' 词 · 当前开放 ' + sprint.open + ' 词'),
+    element('p', '首轮已学 ' + sprint.learned + ' / ' + sprint.target + ' 词', 'plan-count'),
     bar(sprint.learned, sprint.target, '首轮回忆进度'),
-    element('p', paceText),
+    element('p', '当前到期 ' + tasks.due.length + ' 张 · 今日新词还剩 ' + tasks.new.length + ' 个'),
+    element('p', '11 月 26 日首轮截止 · 11 月 27–30 日集中复习', 'muted'),
   ];
-  if (unopened) sprintRows.push(element('p', '还有 ' + unopened + ' 个计划词条待开放。', 'muted'));
   if (sprint.shortfall && sprint.remainingDays > 0) {
     sprintRows.push(element('p', '按每日 50 个上限，首轮仍差 ' + sprint.shortfall + ' 词。', 'muted'));
   }
-  $('sprint-stats').replaceChildren(...sprintRows);
-  const reviewDays = ['2026-11-27', '2026-11-28', '2026-11-29', targetDate];
-  const stageData = [
-    ['G1 · 15 词试学', words.filter(w => !w.tier), 15],
-    ['G2 · 150 词阶段', words.slice(0, 150), 150],
-    ['G3 · 300 词阶段', words.slice(0, 300), 300],
-    ['G4 · 完整冲刺词库', words, sprint.target],
-  ];
-  const stageRows = stageData.map(([label, entries, goal]) => {
-    const count = entries.filter(word => Object.hasOwn(data.progress.firstSeen, word.id)).length;
-    const mastered = entries.filter(word => status(data.progress, word) === '已掌握').length;
-    const remaining = Math.max(0, goal - count);
-    let estimate = count >= goal ? '首轮完成' : entries.length < goal ? '待扩库 · 当前已开放 ' + entries.length + ' 词' : '预计日期积累中';
-    if (remaining && entries.length >= goal && stats.pace > 0) {
-      const days = Math.ceil(remaining / stats.pace);
-      const date = new Date(Date.parse(today) + days * 86_400_000).toISOString().slice(5, 10);
-      estimate = '预计 ' + date + ' · ' + (days <= stats.remainingDays ? '按计划' : '需追赶');
-    }
-    const row = element('article', '', 'stage stack');
-    row.append(element('h3', label), bar(count, goal, label),
-      element('p', '目标 ' + goal + ' · 已学 ' + count + ' · 已掌握 ' + mastered + ' · 剩余 ' + remaining),
-      element('p', estimate, 'muted'));
-    return row;
-  });
-  const completed = reviewDays.filter(date => data.reviews[date] > 0).length;
-  const review = element('article', '', 'stage stack');
-  review.append(element('h3', '集中复习 · 11 月 27–30 日'), bar(completed, 4, '集中复习'),
-    element('p', '已复习 ' + completed + ' / 4 天 · 剩余 ' + (4 - completed) + ' 天'),
-    element('p', today < reviewStart ? '11 月 27 日开始 · 预计 11 月 30 日完成' : '目标完成日 11 月 30 日', 'muted'));
-  $('stages').replaceChildren(...stageRows, review);
+  $('sprint-stats').replaceChildren(...sprintRows, action);
   $('skills').replaceChildren(...modes.map(skill => {
     const applicable = words.filter(word => word.skills.includes(skill));
     const passed = applicable.filter(word => status(data.progress, word, skill) === '已掌握').length;
@@ -598,12 +726,6 @@ function renderPlan() {
     row.append(element('strong', entry.date.slice(5)), element('span', '新学 ' + entry.learned + ' · 复习 ' + entry.reviewed));
     return row;
   }));
-  $('progress').replaceChildren(...words.map((word, i) => {
-    const row = element('li');
-    row.append(element('strong', status(data.progress, word) === '未学习' ? '词条 ' + (i + 1) : word.id),
-      element('span', word.skills.map(skill => names[skill] + ' · ' + status(data.progress, word, skill)).join(' / '), 'muted'));
-    return row;
-  }));
 }
 
 function renderSettings() {
@@ -619,15 +741,33 @@ function render() {
     if (tab.hash === '#' + page) tab.setAttribute('aria-current', 'page');
     else tab.removeAttribute('aria-current');
   }
+  refreshToday();
   if (page === 'learn') {
-    refreshToday();
     renderStudy();
     return;
   }
   if (!ready) return;
   if (page === 'plan') renderPlan();
+  else if (page === 'review') renderReview();
   else renderSettings();
 }
+
+$('start-review').addEventListener('click', beginReview);
+$('review-undo').addEventListener('click', undoLast);
+$('word-query').addEventListener('input', () => {
+  visibleWords = 50;
+  renderWordList();
+});
+for (const filter of document.querySelectorAll('.word-filters button')) {
+  filter.addEventListener('click', () => {
+    for (const option of document.querySelectorAll('.word-filters button')) {
+      option.setAttribute('aria-pressed', String(option === filter));
+    }
+    visibleWords = 50;
+    renderWordList();
+  });
+}
+$('more-words').addEventListener('click', () => { visibleWords += 50; renderWordList(); });
 
 for (const key of ['accent', 'speed', 'sprintBase', 'target', 'reminder']) {
   $(key).addEventListener('change', event => {

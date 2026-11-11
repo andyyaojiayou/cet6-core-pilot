@@ -7,6 +7,22 @@ const key = ({ word, skill }) => `${word.id}:${skill}`;
 export const day = (date) => zone.format(date);
 export const empty = () => ({ version: 1, cards: {}, firstSeen: {} });
 
+export function ratingDue(state, item, rating, now) {
+  const card = state.cards[key(item)]?.fsrs ?? createEmptyCard(now);
+  return scheduler.next(card, now, rating).card.due;
+}
+
+export function nextReview(state, words, now) {
+  let earliest = Infinity;
+  for (const word of words) {
+    for (const skill of word.skills) {
+      const due = Date.parse(state.cards[key({ word, skill })]?.fsrs.due);
+      if (due > now.getTime() && due < earliest) earliest = due;
+    }
+  }
+  return Number.isFinite(earliest) ? new Date(earliest) : null;
+}
+
 export function grade(state, item, rating, now = new Date()) {
   if (!item.word.skills.includes(item.skill) || ![1, 2, 3, 4].includes(rating)) {
     throw new Error('无效训练卡或评分');

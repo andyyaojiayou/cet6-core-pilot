@@ -1,4 +1,4 @@
-import { createData, readBackup } from './session.mjs?v=9';
+import { createData, readBackup } from './session.mjs?v=10';
 
 const database = 'cet6-vocabulary';
 const previewDatabase = 'cet6-vocabulary-preview-g1-v5-20261105';
