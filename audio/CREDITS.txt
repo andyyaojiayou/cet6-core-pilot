@@ -16,10 +16,20 @@ noun uses of affect, associate, attribute, and extract, and American noun stress
 in address. Added example sentences are measured at 130–175 words per minute
 including pauses.
 
-US: en_US-ljspeech-medium. Its model card lists the training corpus as public domain.
-https://huggingface.co/rhasspy/piper-voices/blob/main/en/en_US/ljspeech/medium/MODEL_CARD
+G3 and G4 extend the same pinned voice pair. The IPA and sentence checks
+distinguish forms such as the noun and verb abuse, the adjective and verb
+frequent, and the noun and verb conflict. New examples use the same
+130–175 WPM validation range.
+
+US model en_US-ljspeech-medium. Its pinned model card lists the training
+corpus as public domain. The local model matches the published SHA-256
+6f52a751e2349abe7a76735eb09dc1875298c77ea2342ffd2fef79ff81b87f22.
+https://huggingface.co/rhasspy/piper-voices/blob/e7229f7d33a10e145e109b886d661984201ac3c4/en/en_US/ljspeech/medium/MODEL_CARD
 https://keithito.com/LJ-Speech-Dataset/
 
-UK: en_GB-cori-medium. Its model card lists the training corpus as public domain.
-https://huggingface.co/rhasspy/piper-voices/blob/main/en/en_GB/cori/medium/MODEL_CARD
+UK model en_GB-cori-medium. The pinned model card for the version used here
+lists the LibriVox training corpus as public domain. The local model matches
+the published SHA-256
+1899f98e5fb8310154f3c2973f4b8a929ba7245e722b3d3a85680b833d95f10d.
+https://huggingface.co/rhasspy/piper-voices/blob/e7229f7d33a10e145e109b886d661984201ac3c4/en/en_GB/cori/medium/MODEL_CARD
 https://librivox.org/pages/public-domain/

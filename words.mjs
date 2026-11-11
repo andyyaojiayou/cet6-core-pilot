@@ -11,6 +11,10 @@ import { g2BatchTen } from './words-g2-10.mjs';
 import { g3BatchOne } from './words-g3-01.mjs';
 import { g3BatchTwo } from './words-g3-02.mjs';
 import { g3BatchThree } from './words-g3-03.mjs';
+import { g4BatchOne } from './words-g4-01.mjs';
+import { g4BatchTwo } from './words-g4-02.mjs';
+import { g4BatchThree } from './words-g4-03.mjs';
+import { g4BatchFour } from './words-g4-04.mjs';
 
 const nju = 'https://eol.nju.edu.cn/cet6/papers/202606-1.html';
 const nju3 = 'https://eol.nju.edu.cn/cet6/papers/202606-3.html';
@@ -419,8 +423,24 @@ const g1Words = [
   },
 ];
 
+const g4Words = [...g4BatchOne, ...g4BatchTwo, ...g4BatchThree, ...g4BatchFour];
+
+function interleaveSkills(entries) {
+  const bySkill = ['listening', 'reading', 'writing']
+    .map(skill => entries.filter(word => word.skills[0] === skill));
+  const sequence = [];
+  for (let index = 0; index < Math.max(...bySkill.map(group => group.length)); index++) {
+    for (const group of bySkill) {
+      if (group[index]) sequence.push(group[index]);
+    }
+  }
+  return sequence;
+}
+
 export const words = [
   ...g1Words, ...g2BatchOne, ...g2BatchTwo, ...g2BatchThree, ...g2BatchFour,
   ...g2BatchFive, ...g2BatchSix, ...g2BatchSeven, ...g2BatchEight, ...g2BatchNine, ...g2BatchTen,
   ...g3BatchOne, ...g3BatchTwo, ...g3BatchThree,
+  ...interleaveSkills(g4Words.filter(word => word.tier === 'A')),
+  ...interleaveSkills(g4Words.filter(word => word.tier === 'B')),
 ];

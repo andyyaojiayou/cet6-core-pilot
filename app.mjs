@@ -1,4 +1,4 @@
-import { words } from './words.mjs?v=11';
+import { words } from './words.mjs?v=12';
 import { dailyNew, day, status, writingCorrect } from './learning.mjs?v=2';
 import { dailyQuote } from './daily-quote.mjs';
 import { beginCheck, checkAvailable, createData, current, draft, mergeBackup, modes, move, pending, plan, rate, readBackup, recordCheck,
