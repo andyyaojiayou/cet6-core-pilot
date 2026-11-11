@@ -223,6 +223,12 @@ export function pending(data, words, now) {
   return { ...tasks, new: tasks.new.slice(0, capacity), extra: date < reviewStart ? tasks.extra : [] };
 }
 
+export function waitingForQuota(data, words, item, now) {
+  if (Object.hasOwn(data.progress.firstSeen, item.word.id)) return false;
+  const { today, quota } = sprintPlan(data, words, day(now));
+  return today >= quota;
+}
+
 export function reviewSession(data, words, now) {
   const previous = data.session;
   const date = day(now);
@@ -233,15 +239,7 @@ export function reviewSession(data, words, now) {
     return openSession({ ...data, suspendedCheck: previous }, due);
   }
   if (date > targetDate && data.suspendedCheck) return { ...data, suspendedCheck: undefined };
-  if (date < reviewStart) {
-    const item = current(data, words);
-    if (!item || Object.hasOwn(data.progress.firstSeen, item.word.id)) return data;
-    const sprint = sprintPlan(data, words, date);
-    if (sprint.today < sprint.quota) return data;
-    const tasks = pending(data, words, now);
-    const ids = [...tasks.due, ...tasks.extra].map(cardId).filter(id => !previous.done.includes(id));
-    return openSession({ ...data, deferredDrafts: unfinishedDrafts(data) }, ids);
-  }
+  if (date < reviewStart) return data;
   if (!previous?.ids.some(id => !Object.hasOwn(data.progress.cards, id))) return data;
   const ids = pending(data, words, now).due.map(cardId).filter(id => !previous.done.includes(id));
   const drafts = {};
@@ -392,15 +390,8 @@ export function rate(data, words, rating, now, slot = 'session') {
   if (typeof answer !== 'boolean' || (!answer && rating !== 1)) return data;
   const previous = data.progress.cards[item.id];
   if (slot === 'review' && (!previous || Date.parse(previous.fsrs.due) > now.getTime())) return data;
-  const wasLearned = Object.hasOwn(data.progress.firstSeen, item.word.id);
   const today = day(now);
-  if (!previous) {
-    if (today >= reviewStart) return data;
-    if (!wasLearned) {
-      const sprint = sprintPlan(data, words, today);
-      if (sprint.today >= sprint.quota) return data;
-    }
-  }
+  if (!previous && (today >= reviewStart || waitingForQuota(data, words, item, now))) return data;
   const next = {
     ...data,
     progress: grade(data.progress, item, rating, now),

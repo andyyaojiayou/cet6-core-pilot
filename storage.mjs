@@ -1,4 +1,4 @@
-import { createData, readBackup } from './session.mjs?v=10';
+import { createData, readBackup } from './session.mjs?v=11';
 
 const database = 'cet6-vocabulary';
 const previewDatabase = 'cet6-vocabulary-preview-g1-v5-20261105';
@@ -25,9 +25,16 @@ export async function openStore(release = globalThis.document?.documentElement.d
   });
   db.onversionchange = () => db.close();
 
-  function transaction(transform) {
+  function transaction(transform, persist = false) {
     return new Promise((resolve, reject) => {
-      const tx = db.transaction(storeName, 'readwrite');
+      let tx;
+      try {
+        tx = persist ? db.transaction(storeName, 'readwrite', { durability: 'strict' })
+          : db.transaction(storeName, 'readwrite');
+      } catch (error) {
+        if (!persist || !(error instanceof TypeError)) throw error;
+        tx = db.transaction(storeName, 'readwrite');
+      }
       const store = tx.objectStore(storeName);
       let result, failure;
       tx.oncomplete = () => resolve(result);
@@ -58,6 +65,6 @@ export async function openStore(release = globalThis.document?.documentElement.d
     save: (data, revision) => transaction(previous => {
       if (revision !== null && previous?.revision !== revision) throw new StaleProgress();
       return { revision: (previous?.revision ?? -1) + 1, data };
-    }),
+    }, true),
   };
 }

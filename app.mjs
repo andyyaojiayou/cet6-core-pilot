@@ -2,8 +2,8 @@ import { words } from './words.mjs?v=13';
 import { dailyNew, day, nextReview, ratingDue, status, writingCorrect } from './learning.mjs?v=3';
 import { dailyQuote } from './daily-quote.mjs';
 import { beginCheck, checkAvailable, createData, current, draft, mergeBackup, modes, move, pending, plan, rate, readBackup, recordCheck,
-  reviewSession, sprintBase, setSenseLevel, setWordLevel, startDueReview, startSession, undo } from './session.mjs?v=10';
-import { openStore, StaleProgress } from './storage.mjs?v=11';
+  reviewSession, sprintBase, setSenseLevel, setWordLevel, startDueReview, startSession, undo, waitingForQuota } from './session.mjs?v=11';
+import { openStore, StaleProgress } from './storage.mjs?v=12';
 
 const $ = id => document.getElementById(id);
 const names = { listening: '听力', reading: '阅读', writing: '写作' };
@@ -13,6 +13,7 @@ audio.preload = 'none';
 let playback = 0, playingButton;
 let data = createData(), revision = null, store, ready = false, active = false, reviewing = false;
 let selectedWord = '', visibleWords = 50;
+let renderedDay = day(new Date());
 let writes = Promise.resolve();
 const reviewTime = new Intl.DateTimeFormat('zh-CN', {
   timeZone: 'Asia/Shanghai', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
@@ -57,16 +58,21 @@ function load(record) {
   ready = true;
 }
 
-function save(change, after, recovery = false) {
+function save(change, after, { recovery = false, reread = false } = {}) {
   writes = writes.then(async () => {
     if (!store || (!ready && !recovery)) {
       message('请在支持本地存储的 Safari 标签页中打开，或恢复备份。');
       return;
     }
     try {
+      const before = data;
+      if (reread) {
+        const record = await store.load();
+        if (record.revision !== revision) load(record);
+      }
       const next = change(data);
       if (next !== data) load(await store.save(next, revision));
-      after?.(next);
+      after?.(next, data !== before);
     } catch (error) {
       if (error instanceof StaleProgress) {
         load(await store.load());
@@ -161,30 +167,19 @@ function refreshToday() {
   $('start-review').disabled = !tasks.due.length;
 }
 
-function refreshPhase() {
-  if (!ready || reviewSession(data, words, new Date()) === data) {
+function refreshPhase(reread = false) {
+  const now = new Date();
+  const dateChanged = renderedDay !== day(now);
+  if (!ready || (!reread && !dateChanged && reviewSession(data, words, now) === data)) {
     refreshToday();
     return;
   }
-  save(previous => reviewSession(previous, words, new Date()), () => {
-    stopAudio();
-    render();
-  });
-}
-
-function refreshFromHistory(event) {
-  if (!event.persisted || !ready || !store) {
-    refreshPhase();
-    return;
-  }
-  writes = writes.then(async () => {
-    const record = await store.load();
-    if (record.revision !== revision) {
-      load(record);
+  save(previous => reviewSession(previous, words, new Date()), (_, changed) => {
+    if (changed || dateChanged) {
+      stopAudio();
       render();
-    }
-  }).catch(() => message('未能读取最新学习进度，请重新打开页面。'));
-  void writes.then(refreshPhase);
+    } else refreshToday();
+  }, { reread });
 }
 
 function updateCard(item, change, slot, after) {
@@ -209,7 +204,7 @@ function renderStudy(slot = 'session') {
       save(previous => startSession(previous, words, new Date()), () => {
         active = Boolean(current(data, words));
         render();
-      });
+      }, { reread: true });
     }, 'primary');
     start.id = 'start';
     const empty = !item && tasks.due.length + tasks.new.length + tasks.extra.length === 0;
@@ -242,6 +237,7 @@ function renderStudy(slot = 'session') {
   const answered = session.drafts[item.id] ?? {};
   const scored = session.done.includes(item.id);
   const answeredCard = typeof answered.correct === 'boolean';
+  const paused = !isReview && !session.check && waitingForQuota(data, words, item, new Date());
   const header = element('div', '', 'row');
   header.append(element('span', names[skill], 'badge'), element('span', word.theme, 'badge'),
     element('span', '第 ' + (session.cursor + 1) + ' / ' + session.ids.length + ' 张', 'muted'));
@@ -262,8 +258,13 @@ function renderStudy(slot = 'session') {
   if (data.undo && !session.check && Boolean(data.undo.reviewRating) === isReview) nav.append(button('撤销上次评分', undoLast));
   study.replaceChildren(header, title, body, nav);
 
+  if (paused) {
+    const review = element('a', '去复习', 'button');
+    review.href = '#review';
+    body.append(element('p', '今天的新词额度已用完。当前卡与草稿已保留，明天可以继续评分。', 'muted'), review);
+  }
   if (answeredCard || scored) {
-    showFeedback(item, answered, scored, body, slot);
+    showFeedback(item, answered, scored, body, slot, paused);
     return;
   }
   const answer = (correct, revealed = false) => updateCard(item, { correct, revealed }, slot, () => {
@@ -485,7 +486,7 @@ function semanticFeedback(word) {
   return section;
 }
 
-function showFeedback(item, { correct, revealed }, scored, body, slot) {
+function showFeedback(item, { correct, revealed }, scored, body, slot, paused) {
   const { word } = item;
   const box = element('div', '', 'feedback stack');
   const outcome = correct ? '答对了' : revealed ? '已揭晓' : revealed === false ? '答错了' : '待巩固';
@@ -497,7 +498,7 @@ function showFeedback(item, { correct, revealed }, scored, body, slot) {
   const checking = data[slot]?.check;
   const isReview = slot === 'review';
   result.append(element('strong', outcome), element('p', checking ? (scored ? '抽测已记录' : '本题计入阶段抽测。')
-    : scored ? '已评分 · 可回看'
+    : scored ? '已评分 · 可回看' : paused ? '答案已保留'
     : correct ? '请按实际回忆难度评分。' : '看完解析后可记录为忘记。'));
   verdict.append(icon, result);
   const usage = element('section', '', 'explanation stack');
@@ -532,7 +533,7 @@ function showFeedback(item, { correct, revealed }, scored, body, slot) {
       stopAudio();
       save(previous => current(previous, words)?.id === item.id ? recordCheck(previous, words, new Date()) : previous, render);
     }, 'primary'));
-  } else if (!scored) {
+  } else if (!scored && !paused) {
     const grades = [[1, '忘记'], [2, '困难'], [3, '记住'], [4, '熟练']];
     const score = element('section', '', 'score stack');
     const ratings = element('div', '', 'ratings');
@@ -589,7 +590,7 @@ function beginReview() {
     message('');
     render();
     window.scrollTo(0, 0);
-  });
+  }, { reread: true });
 }
 
 function wordLevel(word) {
@@ -750,6 +751,7 @@ function renderSettings() {
 }
 
 function render() {
+  renderedDay = day(new Date());
   const page = pages.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'learn';
   for (const name of pages) $(name + '-page').hidden = page !== name;
   for (const tab of document.querySelectorAll('.tabs a')) {
@@ -838,7 +840,7 @@ async function importProgress(event, combine) {
       active = false;
       render();
       message(combine ? '学习进度已合并。' : '学习进度已恢复。');
-    }, !combine);
+    }, { recovery: !combine });
   } catch {
     message('无法导入此文件。请选择词间导出的有效 JSON 备份。');
   }
@@ -850,10 +852,10 @@ $('merge').addEventListener('change', event => importProgress(event, true));
 window.addEventListener('hashchange', () => { stopAudio(); render(); });
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) stopAudio();
-  else refreshPhase();
+  else refreshPhase(true);
 });
 window.addEventListener('pagehide', stopAudio);
-window.addEventListener('pageshow', refreshFromHistory);
+window.addEventListener('pageshow', () => refreshPhase(true));
 setInterval(refreshPhase, 30000);
 
 const release = document.documentElement.dataset.release;
