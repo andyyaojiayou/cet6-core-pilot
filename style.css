@@ -34,6 +34,14 @@ p { line-height: 1.6; }
 #quote-en { font-size: 1rem; font-weight: 650; line-height: 1.4; }
 #quote-zh { color: var(--muted); font-size: .875rem; margin-top: 3px; }
 .hero-guide { color: var(--muted); font-size: .875rem; }
+.task-list { list-style: none; margin: 12px 0; padding: 0; display: grid; gap: 9px; }
+.task-row { padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.task-label { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.task-label strong { font-size: .95rem; }
+.task-row progress { display: block; width: 100%; height: 7px; margin: 9px 0 6px; accent-color: var(--accent); }
+.task-review { padding: 12px; border-left: 3px solid var(--accent); background: var(--surface); }
+.task-review h3 { font-size: 1rem; }
+.group-complete { color: var(--accent); }
 .metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 12px 0; }
 .metrics > *, .panel { background: var(--paper); border: 1px solid var(--line); border-radius: 16px; }
 .metrics > * { display: grid; gap: 4px; padding: 10px 4px; text-align: center; }
