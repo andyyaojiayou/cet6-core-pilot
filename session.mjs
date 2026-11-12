@@ -24,6 +24,8 @@ function validateSession(session) {
     || new Set(session.ids).size !== session.ids.length || !Number.isInteger(session.cursor)
     || session.cursor < 0 || session.cursor >= session.ids.length || !object(session.drafts)
     || (session.check !== undefined && session.check !== true)
+    || (session.grouped !== undefined && session.grouped !== true)
+    || (session.groupBreak !== undefined && (!session.grouped || !modes.includes(session.groupBreak)))
     || !Array.isArray(session.done) || new Set(session.done).size !== session.done.length
     || !session.done.every(id => session.ids.includes(id))) throw new Error('续学位置无效');
   validateDrafts(session.drafts, id => session.ids.includes(id));
@@ -253,12 +255,12 @@ export function reviewSession(data, words, now) {
   return Object.keys(deferredDrafts).length ? { ...data, session, deferredDrafts } : { ...data, session };
 }
 
-export function startSession(data, words, now) {
+export function startSession(data, words, now, { newOnly = false } = {}) {
   const reviewed = reviewSession(data, words, now);
   if (reviewed !== data) return reviewed;
   const tasks = pending(data, words, now);
   if (current(data, words)) return data;
-  const ids = [...tasks.due, ...tasks.extra, ...tasks.new].map(cardId);
+  const ids = [...(newOnly ? [] : tasks.due), ...tasks.extra, ...tasks.new].map(cardId);
   return openSession(data.session ? { ...data, deferredDrafts: unfinishedDrafts(data) } : data, ids);
 }
 
@@ -358,8 +360,13 @@ export function beginCheck(data, words, now, random = Math.random) {
 function advanceSession(session, id) {
   const done = [...session.done, id];
   const candidates = [...session.ids.slice(session.cursor + 1), ...session.ids.slice(0, session.cursor)];
-  const next = candidates.find(candidate => !done.includes(candidate));
-  return next ? { ...session, done, cursor: session.ids.indexOf(next) } : null;
+  const remaining = candidates.filter(candidate => !done.includes(candidate));
+  const skill = id.split(':')[1];
+  const next = (session.grouped && remaining.find(candidate => candidate.endsWith(':' + skill))) || remaining[0];
+  if (!next) return null;
+  const updated = { ...session, done, cursor: session.ids.indexOf(next) };
+  if (session.grouped && !next.endsWith(':' + skill)) updated.groupBreak = skill;
+  return updated;
 }
 
 function noteResult(results, date, id, answer) {
@@ -385,7 +392,7 @@ export function rate(data, words, rating, now, slot = 'session') {
   data = reviewSession(data, words, now);
   if (item?.id !== current(data, words, slot)?.id) return data;
   const session = data[slot];
-  if (!item || session.check || session.done.includes(item.id)) return data;
+  if (!item || session.check || session.groupBreak || session.done.includes(item.id)) return data;
   const answer = session.drafts[item.id]?.correct;
   if (typeof answer !== 'boolean' || (!answer && rating !== 1)) return data;
   const previous = data.progress.cards[item.id];

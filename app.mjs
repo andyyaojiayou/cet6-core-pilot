@@ -2,8 +2,9 @@ import { words } from './words.mjs?v=13';
 import { dailyNew, day, nextReview, ratingDue, status, writingCorrect } from './learning.mjs?v=3';
 import { dailyQuote } from './daily-quote.mjs';
 import { beginCheck, checkAvailable, createData, current, draft, mergeBackup, modes, move, pending, plan, rate, readBackup, recordCheck,
-  reviewSession, sprintBase, setSenseLevel, setWordLevel, startDueReview, startSession, undo, waitingForQuota } from './session.mjs?v=11';
-import { openStore, StaleProgress } from './storage.mjs?v=12';
+  reviewSession, sprintBase, setSenseLevel, setWordLevel, undo, waitingForQuota } from './session.mjs?v=12';
+import { continueGroup, dailyGroups, groupSession, sessionGroups, startTraining, trainingNames } from './training.mjs?v=1';
+import { openStore, StaleProgress } from './storage.mjs?v=13';
 
 const $ = id => document.getElementById(id);
 const names = { listening: '听力', reading: '阅读', writing: '写作' };
@@ -172,6 +173,8 @@ function refreshPhase(reread = false) {
   const dateChanged = renderedDay !== day(now);
   if (!ready || (!reread && !dateChanged && reviewSession(data, words, now) === data)) {
     refreshToday();
+    if (ready && !active && (!location.hash || location.hash === '#learn')) renderStudy();
+    if (ready && !reviewing && location.hash === '#review') renderReview();
     return;
   }
   save(previous => reviewSession(previous, words, new Date()), (_, changed) => {
@@ -186,11 +189,60 @@ function updateCard(item, change, slot, after) {
   save(previous => current(previous, words, slot)?.id === item.id ? draft(previous, change, slot) : previous, after);
 }
 
+function taskList(groups, review = false) {
+  const list = element('ol', '', 'task-list');
+  for (const group of groups) {
+    const total = review ? group.due : group.total;
+    const done = review ? 0 : group.done;
+    const row = element('li', '', 'task-row');
+    row.dataset.skill = group.skill;
+    const label = element('div', '', 'task-label');
+    label.append(element('strong', trainingNames[group.skill]),
+      element('span', review ? total + ' 张待复习' : done + ' / ' + total + ' 个', 'muted'));
+    row.append(label);
+    if (!review && total) row.append(bar(done, total, trainingNames[group.skill] + '完成进度'));
+    const caption = review ? '' : !total ? '今天暂无安排' : done === total ? '已完成' : '集中完成这一组';
+    if (caption) row.append(element('span', caption, 'muted'));
+    list.append(row);
+  }
+  return list;
+}
+
+function renderGroupBreak(study, slot) {
+  const session = data[slot];
+  if (!session?.groupBreak) return false;
+  const next = current(data, words, slot);
+  const groups = sessionGroups(session);
+  const finished = groups.find(group => group.skill === session.groupBreak);
+  const upcoming = groups.find(group => group.skill === next.skill);
+  const heading = element('h2', '本组完成', 'group-complete');
+  const proceed = button('开始下一组 · ' + trainingNames[next.skill], () => {
+    save(previous => continueGroup(previous, slot), () => { render(); window.scrollTo(0, 0); }, { reread: true });
+  }, 'primary');
+  proceed.id = slot + '-next-group';
+  study.replaceChildren(heading,
+    element('p', trainingNames[session.groupBreak] + (finished ? ' · ' + finished.done + ' / ' + finished.total : '已完成')),
+    element('p', '下一组：' + trainingNames[next.skill] + '，还有 ' + (upcoming.total - upcoming.done) + ' 张。可以休息一下再继续。', 'muted'),
+    proceed, button(slot === 'review' ? '返回复习' : '返回首页', () => {
+      if (slot === 'review') reviewing = false;
+      else active = false;
+      render();
+    }));
+  if (data.undo && Boolean(data.undo.reviewRating) === (slot === 'review')) {
+    study.append(button('撤销上次评分', undoLast));
+  }
+  return true;
+}
+
 function renderStudy(slot = 'session') {
   const isReview = slot === 'review';
   const study = $(isReview ? 'review-study' : 'study');
   if (!isReview) $('hero').hidden = active && !!current(data, words);
   if (!ready) return;
+  if ((isReview || active) && data[slot] && !data[slot].check && !data[slot].grouped) {
+    save(previous => groupSession(previous, slot), render);
+    return;
+  }
   const item = current(data, words, slot);
   if (!isReview && (!active || !item)) {
     active = false;
@@ -201,20 +253,31 @@ function renderStudy(slot = 'session') {
     }, item ? '' : 'primary');
     due.id = 'start-due';
     const start = button(item ? (data.session?.check ? '继续阶段抽测' : '继续上次学习') : '开始学习', () => {
-      save(previous => startSession(previous, words, new Date()), () => {
+      save(previous => startTraining(previous, words, new Date()), () => {
         active = Boolean(current(data, words));
         render();
       }, { reread: true });
     }, 'primary');
     start.id = 'start';
     const empty = !item && tasks.due.length + tasks.new.length + tasks.extra.length === 0;
-    const detail = item ? '回到上次的词卡，保留未提交答案。'
+    start.disabled = empty;
+    const detail = item ? (data.session?.groupBreak ? '上一组已完成，可以休息后再开始下一组。' : '回到原来的题型和词卡，保留未提交答案。')
       : empty ? '现在没有待做任务，可稍后检查到期词。'
-      : '先复习到期卡，再做主动回忆。';
+      : '先复习到期卡，再按题型集中学新词。做完一组，再开始下一组。';
     const primaryActions = element('div', '', 'row');
     if (item || !tasks.due.length) primaryActions.append(start);
     if (tasks.due.length) primaryActions.append(due);
-    study.replaceChildren(element('h2', item ? '从上次停下的地方继续' : '今日练习'), element('p', detail), primaryActions);
+    const groups = dailyGroups(data, words, new Date());
+    const total = groups.reduce((sum, group) => sum + group.total, 0);
+    study.replaceChildren(element('h2', '每日任务'), element('p', detail));
+    if (tasks.due.length) {
+      const review = element('div', '', 'task-review');
+      review.append(element('h3', '先复习 · ' + tasks.due.length + ' 张'),
+        element('p', groups.filter(group => group.due).map(group => trainingNames[group.skill] + ' ' + group.due + ' 张').join(' · '), 'muted'));
+      study.append(review);
+    }
+    study.append(element('h3', '今日新词 · ' + total + ' 个'), taskList(groups), primaryActions);
+    if (tasks.extra.length) study.append(element('p', '另有 ' + tasks.extra.length + ' 张已学词的能力补练，按题型并入练习，不重复计入新词。', 'muted'));
     const actions = element('div', '', 'row');
     if (checkAvailable(data, words, new Date())) actions.append(button(data.suspendedCheck ? '继续阶段抽测' : '开始阶段抽测', () => {
       save(previous => beginCheck(previous, words, new Date()), () => {
@@ -231,6 +294,7 @@ function renderStudy(slot = 'session') {
     return;
   }
   if (!item) return;
+  if (renderGroupBreak(study, slot)) return;
 
   const { word, skill } = item;
   const session = data[slot];
@@ -239,16 +303,19 @@ function renderStudy(slot = 'session') {
   const answeredCard = typeof answered.correct === 'boolean';
   const paused = !isReview && !session.check && waitingForQuota(data, words, item, new Date());
   const header = element('div', '', 'row');
-  header.append(element('span', names[skill], 'badge'), element('span', word.theme, 'badge'),
-    element('span', '第 ' + (session.cursor + 1) + ' / ' + session.ids.length + ' 张', 'muted'));
+  const groups = sessionGroups(session);
+  const group = groups.find(entry => entry.skill === skill);
+  header.append(element('span', trainingNames[skill], 'badge'),
+    element('span', '本组已完成 ' + group.done + ' / ' + group.total, 'muted'));
   const titles = { listening: '听句子，辨认词义', reading: '看语境，选出词义', writing: '看中文，拼写并写出搭配' };
   const title = element('h2', (session.check ? '抽测 · ' : isReview ? '到期复习 · ' : '') + titles[skill]);
   const body = element('div', '', 'stack');
   const nav = element('div', '', 'row card-nav');
   const previous = button('上一张', () => navigate(-1, slot));
   const next = button('下一张', () => navigate(1, slot));
-  previous.disabled = session.cursor === 0;
-  next.disabled = session.cursor === session.ids.length - 1;
+  const groupIndex = group.ids.indexOf(item.id);
+  previous.disabled = groupIndex === 0;
+  next.disabled = groupIndex === group.ids.length - 1;
   nav.append(previous, next, button(isReview ? '返回复习' : '返回首页', () => {
     stopAudio();
     if (isReview) reviewing = false;
@@ -322,7 +389,12 @@ function renderStudy(slot = 'session') {
 
 function navigate(offset, slot) {
   stopAudio();
-  save(previous => move(previous, offset, slot), () => { render(); window.scrollTo(0, 0); });
+  save(previous => {
+    const item = current(previous, words, slot);
+    const group = sessionGroups(previous[slot]).find(entry => entry.skill === item?.skill);
+    const id = group?.ids[group.ids.indexOf(item.id) + offset];
+    return id ? move(previous, previous[slot].ids.indexOf(id) - previous[slot].cursor, slot) : previous;
+  }, () => { render(); window.scrollTo(0, 0); });
 }
 
 function undoLast() {
@@ -550,7 +622,8 @@ function showFeedback(item, { correct, revealed }, scored, body, slot, paused) {
         }, () => {
           if (saved) {
             const due = new Date(data.progress.cards[item.id].fsrs.due);
-            message(item.word.id + ' · 下次复习 ' + reviewTime.format(due));
+            message((!data[slot] ? trainingNames[item.skill] + ' · 本组完成。' : '')
+              + item.word.id + ' · 下次复习 ' + reviewTime.format(due));
             render();
             window.scrollTo(0, 0);
           } else message('该卡已评分，或今日新词任务已结束。可返回首页检查到期任务。');
@@ -584,7 +657,7 @@ function bar(value, max, label) {
 }
 
 function beginReview() {
-  save(previous => startDueReview(previous, words, new Date()), () => {
+  save(previous => startTraining(previous, words, new Date(), 'review'), () => {
     selectedWord = '';
     reviewing = Boolean(current(data, words, 'review'));
     message('');
@@ -643,6 +716,7 @@ function renderReview() {
   $('review-word').hidden = !word || reviewing;
   $('review-undo').hidden = !data.undo?.reviewRating;
   $('start-review').textContent = data.review ? '继续到期复习' : '复习到期卡';
+  $('review-groups').replaceChildren(taskList(dailyGroups(data, words, new Date()), true));
   if (reviewing) {
     renderStudy('review');
     return;
@@ -716,6 +790,7 @@ function renderPlan() {
     element('p', '首轮已学 ' + sprint.learned + ' / ' + sprint.target + ' 词', 'plan-count'),
     bar(sprint.learned, sprint.target, '首轮回忆进度'),
     element('p', '当前到期 ' + tasks.due.length + ' 张 · 今日新词还剩 ' + tasks.new.length + ' 个'),
+    taskList(dailyGroups(data, words, now)),
     element('p', '11 月 26 日首轮截止 · 11 月 27–30 日集中复习', 'muted'),
   ];
   if (sprint.shortfall && sprint.remainingDays > 0) {
