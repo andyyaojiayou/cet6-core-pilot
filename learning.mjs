@@ -1,4 +1,6 @@
 import { createEmptyCard, fsrs, Rating, State } from './vendor/ts-fsrs.mjs';
+import { dueTime, fixedSchedule, newReviewPlan, recordReview, validReviewPlan } from './review-plan.mjs?v=1';
+export { dueTime } from './review-plan.mjs?v=1';
 
 const scheduler = fsrs({ enable_fuzz: false });
 const zone = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' });
@@ -16,7 +18,7 @@ export function nextReview(state, words, now) {
   let earliest = Infinity;
   for (const word of words) {
     for (const skill of word.skills) {
-      const due = Date.parse(state.cards[key({ word, skill })]?.fsrs.due);
+      const due = dueTime(state, state.cards[key({ word, skill })]);
       if (due > now.getTime() && due < earliest) earliest = due;
     }
   }
@@ -29,6 +31,15 @@ export function grade(state, item, rating, now = new Date()) {
   }
   const id = key(item);
   const previous = state.cards[id];
+  if (state.schedule === fixedSchedule) {
+    const next = previous ? null : scheduler.next(createEmptyCard(now), now, rating).card;
+    const fixed = previous ? recordReview(previous.fixed, rating > 1, now)
+      : newReviewPlan(day(now));
+    return { ...state, firstSeen: { ...state.firstSeen, [item.word.id]: state.firstSeen[item.word.id] ?? day(now) },
+      cards: { ...state.cards, [id]: { ...previous, fixed,
+        fsrs: previous?.fsrs ?? { ...next, due: next.due.toISOString(), last_review: next.last_review.toISOString() },
+        lastAt: now.toISOString(), rating, mastered: fixed.complete } } };
+  }
   const card = previous?.fsrs ?? createEmptyCard(now);
   const next = scheduler.next(card, now, rating).card;
   const spaced = previous && day(now) > day(new Date(previous.lastAt))
@@ -49,8 +60,8 @@ export function grade(state, item, rating, now = new Date()) {
 export function status(state, word, skill) {
   const entries = (skill ? [skill] : word.skills).map(mode => state.cards[key({ word, skill: mode })]);
   if (entries.every(entry => !entry)) return '未学习';
-  if (entries.some(entry => entry?.rating === Rating.Again || entry?.fsrs.state === State.Relearning)) return '待巩固';
-  if (entries.every(entry => entry?.mastered)) return '已掌握';
+  if (entries.some(entry => entry?.rating === Rating.Again || (!entry?.fixed && entry?.fsrs.state === State.Relearning))) return '待巩固';
+  if (entries.every(entry => entry?.fixed ? entry.fixed.complete : entry?.mastered)) return '已掌握';
   return '已学习';
 }
 
@@ -64,12 +75,12 @@ export function queue(state, words, now = new Date()) {
     for (const skill of word.skills) {
       const item = { word, skill };
       const entry = state.cards[key(item)];
-      if (entry && new Date(entry.fsrs.due) <= now) due.push(item);
+      if (entry && dueTime(state, entry) <= now.getTime() && (!entry.fixed || entry.fixed.lastReview !== day(now))) due.push(item);
       if (!entry && state.firstSeen[word.id]) extra.push(item);
     }
     if (!state.firstSeen[word.id]) fresh.push({ word, skill: word.skills[0] });
   }
-  due.sort((a, b) => Date.parse(state.cards[key(a)].fsrs.due) - Date.parse(state.cards[key(b)].fsrs.due));
+  due.sort((a, b) => dueTime(state, state.cards[key(a)]) - dueTime(state, state.cards[key(b)]));
   return { due, new: fresh, extra };
 }
 
@@ -89,12 +100,16 @@ export function parseBackup(raw) {
   if (!object(data) || data.version !== 1 || !object(data.cards) || !object(data.firstSeen)) {
     throw new Error('备份格式不正确');
   }
+  if (data.schedule !== undefined && data.schedule !== fixedSchedule) throw new Error('复习计划版本无效');
   for (const [id, value] of Object.entries(data.firstSeen)) {
     if (!wordId.test(id) || !/^\d{4}-\d{2}-\d{2}$/.test(value) || !timestamp(value)) throw new Error('词条日期不正确');
   }
   for (const [id, entry] of Object.entries(data.cards)) {
     const [word, skill, tail] = id.split(':');
     const card = entry?.fsrs;
+    if ((data.schedule === fixedSchedule || entry?.fixed !== undefined) && !validReviewPlan(entry?.fixed)) {
+      throw new Error('固定复习计划无效');
+    }
     if (!wordId.test(word) || !skills.includes(skill) || tail !== undefined || !Object.hasOwn(data.firstSeen, word)
       || !object(entry) || !timestamp(entry.lastAt) || typeof entry.mastered !== 'boolean'
       || ![1, 2, 3, 4].includes(entry.rating) || !object(card)

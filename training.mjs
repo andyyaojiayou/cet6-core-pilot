@@ -1,5 +1,5 @@
-import { day } from './learning.mjs?v=3';
-import { current, pending, startDueReview, startSession } from './session.mjs?v=12';
+import { day } from './learning.mjs?v=4';
+import { current, pending, startDueReview, startSession } from './session.mjs?v=13';
 
 export const trainingOrder = ['writing', 'reading', 'listening'];
 export const trainingNames = { writing: '看中文拼写', reading: '看语境选词义', listening: '听句子辨词义' };
