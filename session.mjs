@@ -1,4 +1,5 @@
-import { dailyNew, day, empty, grade, parseBackup, queue, status } from './learning.mjs?v=3';
+import { dailyNew, day, dueTime, empty, grade, parseBackup, queue, status } from './learning.mjs?v=4';
+import { fixedSchedule, migrateProgress } from './review-plan.mjs?v=1';
 
 const sprintStart = '2026-11-10';
 const sprintTarget = 650;
@@ -17,6 +18,19 @@ const cardId = item => `${item.word.id}:${item.skill}`;
 export const createData = (progress = empty()) => ({
   version: 2, progress, prefs: { ...defaults }, session: null, undo: null, reviews: {},
 });
+
+export function activateFixedReview(data) {
+  const progress = migrateProgress(data.progress);
+  const undoProgress = data.undo ? migrateProgress(data.undo.progress) : null;
+  if (progress === data.progress && (!data.undo || undoProgress === data.undo.progress)) return data;
+  return { ...data, progress, undo: data.undo ? { ...data.undo, progress: undoProgress } : null };
+}
+
+export function finishToday(data, now) {
+  const date = day(now);
+  if (data.studyFinished?.[date] || !dailyNew(data.progress, now)) return data;
+  return { ...data, studyFinished: { ...data.studyFinished, [date]: true } };
+}
 
 function validateSession(session) {
   if (session === null) return;
@@ -73,6 +87,9 @@ export function readBackup(raw) {
   if (data?.version === 1) return createData(parseBackup(raw));
   if (data?.version !== 2) throw new Error('备份版本无效');
   validateSnapshot(data);
+  if (data.studyFinished !== undefined && (!object(data.studyFinished)
+    || !Object.entries(data.studyFinished).every(([date, value]) => datePattern.test(date) && value === true))) throw new Error('每日结束记录无效');
+  if (data.reviewDrafts !== undefined) validateDrafts(data.reviewDrafts, id => cardPattern.test(id));
   if (data.deferredDrafts !== undefined) validateDrafts(data.deferredDrafts, id => cardPattern.test(id));
   if (data.senseLevels !== undefined && (!object(data.senseLevels)
     || !Object.entries(data.senseLevels).every(([key, level]) => sensePattern.test(key) && senseLevels.includes(level)))) {
@@ -107,7 +124,8 @@ function unfinishedDrafts(data) {
 function mergeSnapshot(local, imported) {
   const cards = { ...local.progress.cards };
   for (const [id, entry] of Object.entries(imported.progress.cards)) {
-    if (!cards[id] || Date.parse(entry.lastAt) > Date.parse(cards[id].lastAt)) cards[id] = entry;
+    if (!cards[id] || Date.parse(entry.lastAt) > Date.parse(cards[id].lastAt)
+      || (entry.lastAt === cards[id].lastAt && entry.fixed && !cards[id].fixed)) cards[id] = entry;
   }
   const firstSeen = { ...local.progress.firstSeen };
   for (const [id, date] of Object.entries(imported.progress.firstSeen)) {
@@ -134,7 +152,9 @@ function mergeSnapshot(local, imported) {
     const cursor = ids.indexOf(pending.includes(active) ? active : pending[0]);
     session = pending.length ? { ...original, ids, cursor, drafts } : null;
   }
-  const merged = { progress: { version: 1, cards, firstSeen }, reviews, session, deferredDrafts };
+  let progress = { version: 1, cards, firstSeen };
+  if (local.progress.schedule === fixedSchedule || imported.progress.schedule === fixedSchedule) progress = migrateProgress(progress);
+  const merged = { progress, reviews, session, deferredDrafts };
   const reviewOwner = local.review ? local : imported;
   if (local.review !== undefined || imported.review !== undefined) {
     merged.review = filterSession(reviewOwner.review, id => cards[id]?.lastAt === reviewOwner.progress.cards[id]?.lastAt) ?? null;
@@ -160,6 +180,8 @@ export function mergeBackup(local, imported) {
   return {
     ...local, ...merged,
     senseLevels: { ...imported.senseLevels, ...local.senseLevels },
+    studyFinished: { ...imported.studyFinished, ...local.studyFinished },
+    reviewDrafts: { ...imported.reviewDrafts, ...local.reviewDrafts },
     undo: mergedUndo ?? (untouched ? imported.undo : null),
   };
 }
@@ -221,14 +243,37 @@ export function pending(data, words, now) {
   const date = day(now);
   const tasks = queue(data.progress, words, now);
   const sprint = sprintPlan(data, words, date);
-  const capacity = Math.max(0, sprint.quota - sprint.today);
-  return { ...tasks, new: tasks.new.slice(0, capacity), extra: date < reviewStart ? tasks.extra : [] };
+  const capacity = data.studyFinished?.[date] ? 0 : Math.max(0, sprint.quota - sprint.today);
+  const fresh = tasks.new.slice(0, capacity);
+  const afterStudy = data.progress.schedule === fixedSchedule && fresh.length
+    ? tasks.due.filter(item => {
+      const fixed = data.progress.cards[cardId(item)].fixed;
+      return fixed.origin === date && fixed.through === -1;
+    }) : [];
+  return { ...tasks, due: tasks.due.filter(item => !afterStudy.includes(item)), afterStudy,
+    new: fresh, extra: date < reviewStart ? tasks.extra : [] };
 }
 
 export function waitingForQuota(data, words, item, now) {
   if (Object.hasOwn(data.progress.firstSeen, item.word.id)) return false;
+  if (data.studyFinished?.[day(now)]) return true;
   const { today, quota } = sprintPlan(data, words, day(now));
   return today >= quota;
+}
+
+export function reviewOverview(data, words, now) {
+  const tasks = pending(data, words, now);
+  const today = day(now);
+  const upcoming = new Map();
+  let completed = 0;
+  for (const word of words) for (const skill of word.skills) {
+    const fixed = data.progress.cards[word.id + ':' + skill]?.fixed;
+    if (!fixed) continue;
+    if (fixed.complete) completed++;
+    if (fixed.due > today) upcoming.set(fixed.due, (upcoming.get(fixed.due) ?? 0) + 1);
+  }
+  return { due: tasks.due.length, afterStudy: tasks.afterStudy.length, completed,
+    upcoming: [...upcoming].sort(([a], [b]) => a.localeCompare(b)) };
 }
 
 export function reviewSession(data, words, now) {
@@ -236,7 +281,7 @@ export function reviewSession(data, words, now) {
   const date = day(now);
   if (previous?.check) {
     if (date > targetDate) return { ...data, session: null, suspendedCheck: undefined };
-    const due = queue(data.progress, words, now).due.map(cardId);
+    const due = pending(data, words, now).due.map(cardId);
     if (!due.length) return data;
     return openSession({ ...data, suspendedCheck: previous }, due);
   }
@@ -279,14 +324,27 @@ function filterSession(session, keep) {
 }
 
 export function startDueReview(data, words, now) {
-  const ids = queue(data.progress, words, now).due.map(cardId);
+  const ids = pending(data, words, now).due.map(cardId);
   const previous = data.review;
+  const reviewDrafts = { ...data.reviewDrafts };
+  let parked = false;
+  for (const [id, answer] of Object.entries(previous?.drafts ?? {})) {
+    if (!previous.done.includes(id) && !ids.includes(id)) {
+      parked ||= reviewDrafts[id] !== answer;
+      reviewDrafts[id] = answer;
+    }
+  }
   const session = filterSession(previous, id => previous.done.includes(id) || ids.includes(id));
   if (session && current({ review: session }, words, 'review')) {
-    return session === previous ? data : { ...data, review: session };
+    return session === previous && !parked ? data : { ...data, review: session, reviewDrafts };
   }
   if (!ids.length && !previous) return data;
-  return { ...data, review: ids.length ? { ids, cursor: 0, drafts: {}, done: [] } : null };
+  const drafts = {};
+  for (const id of ids) {
+    if (reviewDrafts[id]) drafts[id] = reviewDrafts[id];
+    delete reviewDrafts[id];
+  }
+  return { ...data, reviewDrafts, review: ids.length ? { ids, cursor: 0, drafts, done: [] } : null };
 }
 
 function openSession(data, ids) {
@@ -341,7 +399,7 @@ function checkPools(data, words, date) {
 
 export function checkAvailable(data, words, now) {
   const date = day(now);
-  return date >= reviewStart && date <= targetDate && !data.session && !queue(data.progress, words, now).due.length
+  return date >= reviewStart && date <= targetDate && !data.session && !pending(data, words, now).due.length
     && (Boolean(data.suspendedCheck) || checkPools(data, words, date).some(pool => pool.remaining && pool.ids.length));
 }
 
@@ -396,7 +454,8 @@ export function rate(data, words, rating, now, slot = 'session') {
   const answer = session.drafts[item.id]?.correct;
   if (typeof answer !== 'boolean' || (!answer && rating !== 1)) return data;
   const previous = data.progress.cards[item.id];
-  if (slot === 'review' && (!previous || Date.parse(previous.fsrs.due) > now.getTime())) return data;
+  if (slot === 'review' && (!previous || dueTime(data.progress, previous) > now.getTime())) return data;
+  if (previous && data.progress.schedule === fixedSchedule && !pending(data, words, now).due.some(entry => cardId(entry) === item.id)) return data;
   const today = day(now);
   if (!previous && (today >= reviewStart || waitingForQuota(data, words, item, now))) return data;
   const next = {
@@ -416,7 +475,7 @@ export function rate(data, words, rating, now, slot = 'session') {
     next.undo.review = data.review;
     next.review = filterSession(data.review, id => id !== item.id);
   }
-  if (previous && day(new Date(previous.lastAt)) < today && new Date(previous.fsrs.due) <= now) {
+  if (previous && day(new Date(previous.lastAt)) < today && dueTime(data.progress, previous) <= now.getTime()) {
     next.retention = noteResult(data.retention, today, item.id, answer);
     next.undo.retention = data.retention ?? {};
   }

@@ -42,7 +42,9 @@ p { line-height: 1.6; }
 .task-review { padding: 12px; border-left: 3px solid var(--accent); background: var(--surface); }
 .task-review h3 { font-size: 1rem; }
 .group-complete { color: var(--accent); }
-.metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 12px 0; }
+.metrics { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; margin: 12px 0; }
+.record-answer { width: 100%; margin-top: 12px; }
+#upcoming-reviews { padding-left: 20px; line-height: 1.8; }
 .metrics > *, .panel { background: var(--paper); border: 1px solid var(--line); border-radius: 16px; }
 .metrics > * { display: grid; gap: 4px; padding: 10px 4px; text-align: center; }
 .metrics a { text-decoration: none; }
